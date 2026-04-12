@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - COOLDOWN 10 DETIK
-# Fitur: Auto-Yes, Auto-Reboot, Anti-428, Offline Notif, & Anti-Spam Pesan
+# Skrip Install Bot WhatsApp Auto Reject - BLOKIR SEMENTARA 30 DETIK
+# Fitur: Auto-Yes, Auto-Reboot, Offline Notif, Peringatan 3x, & Auto-Unblock 30s
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -53,8 +53,9 @@ const fs = require('fs');
 
 process.on('uncaughtException', console.error);
 
-// Set untuk menyimpan daftar nomor yang sedang dalam masa "Cooldown" (Anti-Spam)
+// Set & Map untuk sistem Anti-Spam dan Auto-Block
 const callCooldown = new Set();
+const spamCount = new Map(); // Menyimpan jumlah panggilan dari setiap nomor
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -103,33 +104,71 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // AUTO REJECT CALL/VC DENGAN ANTI-SPAM PESAN (10 DETIK)
+    // AUTO REJECT CALL/VC DENGAN BLOKIR SEMENTARA 30 DETIK
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
                 console.log(`❌ Menolak panggilan dari ${c.from}`);
                 
-                // Langsung tolak panggilan detik itu juga
+                // 1. Langsung tolak panggilan detik itu juga
                 await sock.rejectCall(c.id, c.from);
                 
-                // Anti-Spam: Cek apakah nomor ini baru saja menelpon dalam 10 detik terakhir
-                if (!callCooldown.has(c.from)) {
-                    // Jika belum ada di daftar cooldown, kirim pesan peringatan otomatis
+                // 2. Hitung jumlah panggilan masuk dari nomor ini
+                let currentCount = spamCount.get(c.from) || 0;
+                currentCount++;
+                spamCount.set(c.from, currentCount);
+
+                // Jika sudah menelpon 3 kali berturut-turut, otomatis di-Blokir Sementara
+                if (currentCount >= 3) {
+                    console.log(`🚨 BANNED: Memblokir nomor ${c.from} selama 30 DETIK karena Spam Call.`);
+                    
+                    // Kirim pesan terakhir sebelum diblokir (Menyebutkan 30 detik)
                     await sock.sendMessage(c.from, { 
-                        text: ' *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan. Silakan kirim pesan teks saja. Terima kasih!' 
+                        text: '🛑 *Peringatan Sistem*\n\nAnda terdeteksi melakukan SPAM panggilan secara berulang. Sesuai peringatan, nomor Anda kini *DIBLOKIR SEMENTARA* selama 30 Detik.' 
                     });
                     
-                    // Masukkan nomor tersebut ke daftar cooldown
+                    // Eksekusi pemblokiran nomor
+                    await sock.updateBlockStatus(c.from, 'block');
+                    
+                    // Fitur Auto-Unblock setelah 30 Detik (30000 milidetik)
+                    setTimeout(async () => {
+                        try {
+                            await sock.updateBlockStatus(c.from, 'unblock');
+                            console.log(`🔓 UNBANNED: Nomor ${c.from} telah dibuka blokirnya.`);
+                            
+                            // Reset hitungan spam kembali ke nol setelah di-unblock
+                            spamCount.delete(c.from);
+                        } catch (err) {
+                            console.log(`Gagal unblock nomor ${c.from}:`, err.message);
+                        }
+                    }, 30000);
+
+                    continue; // Hentikan proses selanjutnya untuk nomor ini
+                }
+                
+                // 3. Sistem Cooldown Pesan Peringatan Biasa (10 Detik)
+                if (!callCooldown.has(c.from)) {
+                    // Kirim pesan peringatan (Ditambahkan info akan diblokir jika 3x call)
+                    await sock.sendMessage(c.from, { 
+                        text: '🤖 *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja.\n\n⚠️ *Catatan:* Jika Anda melakukan panggilan hingga 3x berturut-turut, sistem akan memblokir nomor Anda secara otomatis.' 
+                    });
+                    
+                    // Masukkan ke daftar cooldown
                     callCooldown.add(c.from);
                     
-                    // Hapus nomor dari daftar cooldown setelah 10 DETIK (10000 milidetik)
+                    // Hapus dari cooldown pesan setelah 10 detik
                     setTimeout(() => {
                         callCooldown.delete(c.from);
                     }, 10000);
-                } else {
-                    // Jika mencoba call berulang-ulang dalam waktu 10 detik, diamkan saja
-                    console.log(`Diamkan (Anti-Spam): Orang ini (${c.from}) mencoba spam call.`);
                 }
+
+                // 4. Pengurangan otomatis poin spam jika dia berhenti menelpon secara wajar (reset bertahap tiap 2 menit)
+                setTimeout(() => {
+                    let reduceCount = spamCount.get(c.from) || 0;
+                    if (reduceCount > 0) {
+                        spamCount.set(c.from, reduceCount - 1);
+                    }
+                }, 120000); 
             }
         }
     });
