@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - FINAL FIX
+# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - FIX CONNECTION CLOSED
 # ==============================================================================
 
 # 1. Pastikan tidak ada prompt / popup saat instalasi (Auto Yes mode)
@@ -43,14 +43,18 @@ npm init -y
 npm install @whiskeysockets/baileys@latest pino@latest
 npm update 
 
-# HAPUS SESI LAMA: Memastikan instalasi bersih
+# HAPUS SESI LAMA: Memastikan instalasi bersih dari sisa error sebelumnya
 rm -rf auth_info_baileys
 
 # 8. Membuat file utama bot (index.js)
+# LOGIKA BARU: Menunggu trigger dari server WA sebelum request Pairing Code
 cat << 'EOF' > index.js
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
+
+// Mencegah bot crash jika ada error tak terduga
+process.on('uncaughtException', console.error);
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -64,37 +68,55 @@ async function startBot() {
         syncFullHistory: false
     });
 
-    if (!sock.authState.creds.registered) {
-        setTimeout(async () => {
+    // Event listener untuk memantau status koneksi
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        // JIKA SERVER WA MENGIRIM QR, ITU TANDANYA SERVER SIAP MENERIMA LOGIN
+        // Kita tangkap event ini untuk menembak Pairing Code
+        if (qr && !sock.authState.creds.registered) {
             try {
                 let phoneNumber = fs.readFileSync('wanumber.txt', 'utf8').trim();
                 phoneNumber = phoneNumber.replace(/[^0-9]/g, ''); 
                 
-                const code = await sock.requestPairingCode(phoneNumber);
-                console.log(`\n======================================================`);
-                console.log(`📞 KODE PAIRING ANDA: ${code}`);
-                console.log(`Buka WA -> Perangkat Tertaut -> Tautkan dengan No. Telepon`);
-                console.log(`======================================================\n`);
+                console.log('Menyiapkan permintaan Kode Pairing...');
+                
+                // Jeda 2 detik agar WebSocket benar-benar tenang
+                setTimeout(async () => {
+                    try {
+                        const code = await sock.requestPairingCode(phoneNumber);
+                        // Memformat kode agar mudah dibaca (contoh: ABCD-EFGH)
+                        const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                        
+                        console.log(`\n======================================================`);
+                        console.log(`📞 KODE PAIRING ANDA: ${formattedCode}`);
+                        console.log(`Buka WA -> Perangkat Tertaut -> Tautkan dengan No. Telepon`);
+                        console.log(`======================================================\n`);
+                    } catch (err) {
+                        console.log('Gagal request kode, mencoba ulang secara otomatis...', err.message);
+                    }
+                }, 2000); 
             } catch (err) {
-                console.error('Gagal mendapatkan kode pairing:', err.message);
+                console.error('Error saat membaca nomor dari wanumber.txt', err.message);
             }
-        }, 6000); 
-    }
+        }
 
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) {
+                console.log('Koneksi terputus, mencoba menghubungkan kembali dalam 5 detik...');
                 setTimeout(() => startBot(), 5000);
+            } else {
+                console.log('Bot telah di-logout. Silakan hapus folder auth_info_baileys jika ingin login ulang.');
             }
         } else if (connection === 'open') {
-            console.log('✅ Bot Berhasil Terhubung!');
+            console.log('✅ Bot Berhasil Terhubung ke WhatsApp!');
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
+    // AUTO REJECT CALL/VC
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
@@ -107,6 +129,7 @@ async function startBot() {
         }
     });
 
+    // NOTIFIKASI TETAP BUNYI
     sock.ev.on('messages.upsert', async m => {});
 }
 
@@ -151,7 +174,8 @@ pm2 save
 echo "=========================================================="
 echo "      BOT BERHASIL DIJALANKAN DI BACKGROUND               "
 echo "=========================================================="
-echo "Menunggu Kode Pairing muncul dalam 6 detik..."
-sleep 6
+echo "Menunggu Kode Pairing muncul..."
+echo "Ini bisa memakan waktu 5-15 detik tergantung koneksi server WA."
+sleep 4
 
 pm2 logs wa-autoreject
