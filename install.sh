@@ -105,7 +105,7 @@ async function startBot() {
                 console.log(`❌ Menolak panggilan dari ${c.from}`);
                 await sock.rejectCall(c.id, c.from);
                 await sock.sendMessage(c.from, { 
-                    text: '🤖 *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja. Terima kasih!' 
+                    text: ' *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja. Terima kasih!' 
                 });
             }
         }
