@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - UPDATE SEMUA MODUL
-# Fitur: Auto-Yes, Auto-Reboot, Anti-428 Error, Notifikasi Tetap Bunyi, & Update Modul
+# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - FINAL FIX
+# Fitur: Auto-Yes, Auto-Reboot, Anti-428 Error, Update Modul, Input di Akhir
 # ==============================================================================
 
 # 1. Pastikan tidak ada prompt / popup saat instalasi (Auto Yes mode)
@@ -13,21 +13,8 @@ clear
 echo "=========================================================="
 echo "       SETUP BOT WHATSAPP AUTO REJECT (CALL/VC)           "
 echo "=========================================================="
-
-# OTOMATIS MEMINTA NOMOR WHATSAPP DI AWAL
-echo "Silakan masukkan nomor WhatsApp yang akan digunakan."
-echo "Penting: Gunakan kode negara (misal: 628123456789)"
-read -p "Nomor WhatsApp: " WA_NUMBER
-
-# Validasi input sederhana
-if [[ -z "$WA_NUMBER" ]]; then
-   echo "Error: Nomor WhatsApp tidak boleh kosong!"
-   exit 1
-fi
-
-echo "=========================================================="
-echo "Nomor disimpan: $WA_NUMBER"
-echo "Memulai Proses Instalasi. Semua akan berjalan otomatis..."
+echo "Memulai Proses Instalasi. Silakan duduk manis..."
+echo "Sistem akan menginstal semuanya terlebih dahulu."
 echo "=========================================================="
 
 # 2. Update & Upgrade Sistem VPS
@@ -52,10 +39,7 @@ BOT_DIR="$HOME/bot-autoreject"
 mkdir -p $BOT_DIR
 cd $BOT_DIR
 
-# 7. Simpan nomor WA ke file agar bisa dibaca oleh bot
-echo "$WA_NUMBER" > wanumber.txt
-
-# 8. Inisialisasi Project dan Instal dependensi bot (SELALU VERSI TERBARU)
+# 7. Inisialisasi Project dan Instal dependensi bot (SELALU VERSI TERBARU)
 npm init -y
 npm install @whiskeysockets/baileys@latest pino@latest
 npm update # Memastikan semua sub-modul juga diperbarui ke versi paling stabil
@@ -63,7 +47,7 @@ npm update # Memastikan semua sub-modul juga diperbarui ke versi paling stabil
 # HAPUS SESI LAMA: Memastikan instalasi bersih
 rm -rf auth_info_baileys
 
-# 9. Membuat file utama bot (index.js)
+# 8. Membuat file utama bot (index.js)
 cat << 'EOF' > index.js
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const pino = require('pino');
@@ -121,7 +105,7 @@ async function startBot() {
                 console.log(`❌ Menolak panggilan dari ${c.from}`);
                 await sock.rejectCall(c.id, c.from);
                 await sock.sendMessage(c.from, { 
-                    text: ' *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja. Terima kasih!' 
+                    text: '🤖 *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja. Terima kasih!' 
                 });
             }
         }
@@ -136,8 +120,34 @@ async function startBot() {
 startBot();
 EOF
 
+# ==============================================================================
+# 9. PENGINSTALAN SELESAI, SEKARANG MINTA NOMOR WHATSAPP
+# ==============================================================================
+echo ""
+echo "=========================================================="
+echo " PENGINSTALAN SELESAI! SEKARANG SETUP NOMOR WHATSAPP ANDA "
+echo "=========================================================="
+echo "Silakan masukkan nomor WhatsApp yang akan digunakan."
+echo "Penting: Gunakan kode negara (misal: 628123456789)"
+
+# Menggunakan </dev/tty agar input tetap bekerja saat dieksekusi melalui wget | bash
+read -p "Nomor WhatsApp: " WA_NUMBER </dev/tty
+
+# Validasi input sederhana
+if [[ -z "$WA_NUMBER" ]]; then
+   echo "Error: Nomor WhatsApp tidak boleh kosong! Silakan jalankan ulang."
+   exit 1
+fi
+
+# Simpan nomor WA ke file teks agar bisa dibaca oleh bot
+echo "$WA_NUMBER" > wanumber.txt
+
+echo "=========================================================="
+echo "Nomor disimpan: $WA_NUMBER"
+echo "Mengatur Auto-Restart agar bot berjalan permanen..."
+echo "=========================================================="
+
 # 10. Konfigurasi PM2 agar bot otomatis jalan saat VPS Reboot
-echo "Mengatur Auto-Restart (PM2)..."
 pm2 stop wa-autoreject 2>/dev/null
 pm2 delete wa-autoreject 2>/dev/null
 pm2 start index.js --name "wa-autoreject"
@@ -149,8 +159,9 @@ pm2 save
 
 # 11. Selesai
 echo "=========================================================="
-echo "      INSTALASI SELESAI! BOT BERJALAN PERMANEN            "
+echo "      BOT BERHASIL DIJALANKAN DI BACKGROUND               "
 echo "=========================================================="
-echo "Menunggu Kode Pairing muncul..."
+echo "Menunggu Kode Pairing muncul dalam 6 detik..."
 sleep 6
+
 pm2 logs wa-autoreject
