@@ -2,7 +2,6 @@
 
 # ==============================================================================
 # Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - FINAL FIX
-# Fitur: Auto-Yes, Auto-Reboot, Anti-428 Error, Update Modul, Input di Akhir
 # ==============================================================================
 
 # 1. Pastikan tidak ada prompt / popup saat instalasi (Auto Yes mode)
@@ -31,7 +30,7 @@ sudo apt-get install -y nodejs
 # Update npm ke versi paling baru
 sudo npm install -g npm@latest
 
-# 5. Instal PM2 versi terbaru secara global untuk proses background & auto-reboot
+# 5. Instal PM2 versi terbaru secara global
 sudo npm install -g pm2@latest
 
 # 6. Membuat direktori kerja bot
@@ -39,10 +38,10 @@ BOT_DIR="$HOME/bot-autoreject"
 mkdir -p $BOT_DIR
 cd $BOT_DIR
 
-# 7. Inisialisasi Project dan Instal dependensi bot (SELALU VERSI TERBARU)
+# 7. Inisialisasi Project dan Instal dependensi bot
 npm init -y
 npm install @whiskeysockets/baileys@latest pino@latest
-npm update # Memastikan semua sub-modul juga diperbarui ke versi paling stabil
+npm update 
 
 # HAPUS SESI LAMA: Memastikan instalasi bersih
 rm -rf auth_info_baileys
@@ -65,9 +64,7 @@ async function startBot() {
         syncFullHistory: false
     });
 
-    // Proses Request Pairing Code
     if (!sock.authState.creds.registered) {
-        // Jeda 6 detik agar koneksi WebSocket stabil (Mencegah Error 428)
         setTimeout(async () => {
             try {
                 let phoneNumber = fs.readFileSync('wanumber.txt', 'utf8').trim();
@@ -98,7 +95,6 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // AUTO REJECT CALL/VC
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
@@ -111,10 +107,7 @@ async function startBot() {
         }
     });
 
-    // NOTIFIKASI TETAP BUNYI (Pesan tidak otomatis di-read)
-    sock.ev.on('messages.upsert', async m => {
-        // Biarkan kosong agar pesan tetap berstatus 'Unread' di HP
-    });
+    sock.ev.on('messages.upsert', async m => {});
 }
 
 startBot();
@@ -130,16 +123,14 @@ echo "=========================================================="
 echo "Silakan masukkan nomor WhatsApp yang akan digunakan."
 echo "Penting: Gunakan kode negara (misal: 628123456789)"
 
-# Menggunakan </dev/tty agar input tetap bekerja saat dieksekusi melalui wget | bash
+# Membaca input secara aman menggunakan /dev/tty
 read -p "Nomor WhatsApp: " WA_NUMBER </dev/tty
 
-# Validasi input sederhana
 if [[ -z "$WA_NUMBER" ]]; then
-   echo "Error: Nomor WhatsApp tidak boleh kosong! Silakan jalankan ulang."
+   echo "Error: Nomor WhatsApp tidak boleh kosong! Silakan jalankan ulang skrip."
    exit 1
 fi
 
-# Simpan nomor WA ke file teks agar bisa dibaca oleh bot
 echo "$WA_NUMBER" > wanumber.txt
 
 echo "=========================================================="
@@ -153,7 +144,6 @@ pm2 delete wa-autoreject 2>/dev/null
 pm2 start index.js --name "wa-autoreject"
 pm2 save
 
-# Setup PM2 Startup
 sudo env PATH=$PATH:$(dirname $(which node)) $(which pm2) startup systemd -u $(whoami) --hp $(eval echo ~$(whoami))
 pm2 save
 
