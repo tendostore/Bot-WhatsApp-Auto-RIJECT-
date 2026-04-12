@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - FIX NOTIFIKASI HP
-# Fitur: Auto-Yes, Auto-Reboot, Anti-428 Error, & Status Offline agar Notif Bunyi
+# Skrip Install Bot WhatsApp Auto Reject (Pairing Code) - COOLDOWN 10 DETIK
+# Fitur: Auto-Yes, Auto-Reboot, Anti-428, Offline Notif, & Anti-Spam Pesan
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -53,6 +53,9 @@ const fs = require('fs');
 
 process.on('uncaughtException', console.error);
 
+// Set untuk menyimpan daftar nomor yang sedang dalam masa "Cooldown" (Anti-Spam)
+const callCooldown = new Set();
+
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const { version } = await fetchLatestBaileysVersion();
@@ -63,7 +66,6 @@ async function startBot() {
         printQRInTerminal: false,
         auth: state,
         browser: Browsers.ubuntu('Chrome'),
-        // PERBAIKAN: Set false agar HP tetap menganggap Anda offline dan tetap membunyikan notif
         markOnlineOnConnect: false, 
         syncFullHistory: false
     });
@@ -95,29 +97,45 @@ async function startBot() {
             }
         } else if (connection === 'open') {
             console.log('✅ Bot Terhubung! Status disetel ke Offline agar notif HP bunyi.');
-            // Memaksa status menjadi unavailable (offline) agar notif HP prioritas
             await sock.sendPresenceUpdate('unavailable');
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // AUTO REJECT CALL/VC
+    // AUTO REJECT CALL/VC DENGAN ANTI-SPAM PESAN (10 DETIK)
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
                 console.log(`❌ Menolak panggilan dari ${c.from}`);
+                
+                // Langsung tolak panggilan detik itu juga
                 await sock.rejectCall(c.id, c.from);
-                await sock.sendMessage(c.from, { 
-                    text: ' *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan. Silakan kirim pesan teks saja. Terima kasih!' 
-                });
+                
+                // Anti-Spam: Cek apakah nomor ini baru saja menelpon dalam 10 detik terakhir
+                if (!callCooldown.has(c.from)) {
+                    // Jika belum ada di daftar cooldown, kirim pesan peringatan otomatis
+                    await sock.sendMessage(c.from, { 
+                        text: ' *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan. Silakan kirim pesan teks saja. Terima kasih!' 
+                    });
+                    
+                    // Masukkan nomor tersebut ke daftar cooldown
+                    callCooldown.add(c.from);
+                    
+                    // Hapus nomor dari daftar cooldown setelah 10 DETIK (10000 milidetik)
+                    setTimeout(() => {
+                        callCooldown.delete(c.from);
+                    }, 10000);
+                } else {
+                    // Jika mencoba call berulang-ulang dalam waktu 10 detik, diamkan saja
+                    console.log(`Diamkan (Anti-Spam): Orang ini (${c.from}) mencoba spam call.`);
+                }
             }
         }
     });
 
-    // TETAP TIDAK MEMBACA PESAN (Unread)
     sock.ev.on('messages.upsert', async m => {
-        // Jangan tambahkan sock.readMessages agar pesan tetap dianggap baru oleh WhatsApp
+        // Biarkan kosong agar pesan tetap unread dan notifikasi HP berbunyi
     });
 }
 
