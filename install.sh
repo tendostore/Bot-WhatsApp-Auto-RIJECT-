@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - FIX FATAL ERROR BLOKIR
-# Fitur: Auto-Yes, Auto-Reboot, CS Ramah, & Blokir Multi-Device Akurat 100%
+# Skrip Install Bot WhatsApp Auto Reject - FIX FATAL BLOKIR (DOUBLE DEFENSE)
+# Fitur: Auto-Yes, CS Ramah, Normalisasi JID, & Local Blacklist 15 Detik
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -47,14 +47,15 @@ rm -rf auth_info_baileys
 
 # 7. Membuat file utama bot (index.js)
 cat << 'EOF' > index.js
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, jidNormalizedUser } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const fs = require('fs');
 
 process.on('uncaughtException', console.error);
 
-// Map untuk menyimpan jumlah panggilan dari setiap nomor agar akurat
+// Map & Set untuk sistem Anti-Spam dan Blacklist Lokal
 const spamCount = new Map();
+const localBlacklist = new Set();
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -110,69 +111,79 @@ async function startBot() {
             if (c.status === 'offer') {
                 const callerId = c.from; 
                 
-                // PERBAIKAN FATAL: Memastikan JID benar-benar bersih agar server WA tidak menolak perintah
-                const cleanJid = callerId.split('@')[0].split(':')[0] + '@s.whatsapp.net';
+                // MENGGUNAKAN FUNGSI RESMI BAILEYS UNTUK MENDAPATKAN ID ASLI YANG VALID
+                const cleanJid = jidNormalizedUser(callerId);
                 
+                // PERTAHANAN LAPIS 1: Cek apakah nomor ini sedang dalam status Blacklist 15 Detik
+                if (localBlacklist.has(cleanJid)) {
+                    // Bunuh panggilan seketika tanpa perlu mengirim chat atau print log panjang
+                    await sock.rejectCall(c.id, callerId);
+                    console.log(`[SHIELD] Meredam panggilan dari nomor terblokir: ${cleanJid}`);
+                    continue;
+                }
+
                 console.log(`\n[CALL] Panggilan masuk dari: ${cleanJid}`);
                 
-                // 1. Tolak panggilan secara instan
+                // Tolak panggilan instan untuk proses reguler
                 await sock.rejectCall(c.id, callerId);
                 
-                // 2. Update hitungan spam
-                let count = (spamCount.get(callerId) || 0) + 1;
-                spamCount.set(callerId, count);
+                // Update hitungan spam
+                let count = (spamCount.get(cleanJid) || 0) + 1;
+                spamCount.set(cleanJid, count);
                 
                 console.log(`[STATUS] Akumulasi panggilan nomor ini: ${count}/3`);
 
                 if (count === 1) {
-                    await sock.sendMessage(callerId, { 
+                    await sock.sendMessage(cleanJid, { 
                         text: 'Halo kak! 🙏\n\nMohon maaf sekali, saat ini kami hanya melayani via pesan teks (chat) agar semua pertanyaan bisa terlayani dengan baik. \n\nSilakan ketikkan pesan kakak di sini ya. Terima kasih! 🛒✨' 
                     });
                 } 
                 else if (count === 2) {
-                    await sock.sendMessage(callerId, { 
+                    await sock.sendMessage(cleanJid, { 
                         text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem mendeteksi panggilan berulang. Silakan gunakan pesan teks saja agar sistem tidak error.\n\nJika panggilan dilanjutkan (ke-3), sistem akan memblokir nomor kakak sementara.' 
                     });
                 } 
                 else if (count === 3) {
-                    // Eksekusi Panggilan Ketiga
-                    console.log(`[ACTION] Persiapan memblokir ${cleanJid} selama 15 detik...`);
+                    console.log(`[ACTION] Mengaktifkan pemblokiran untuk ${cleanJid} selama 15 detik...`);
                     
-                    await sock.sendMessage(callerId, { 
+                    // Masukkan ke Blacklist Lokal (Pertahanan Lapis 1 aktif!)
+                    localBlacklist.add(cleanJid);
+
+                    await sock.sendMessage(cleanJid, { 
                         text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, nomor ini telah diblokir sementara selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih 🙏' 
                     });
                     
-                    // JEDA 1.5 DETIK: Memastikan pesan terkirim sempurna sebelum WA memutus jalur
+                    // JEDA 2 DETIK: Memastikan status telepon di server WA benar-benar mati sebelum diblokir
                     setTimeout(async () => {
                         try {
+                            // Pertahanan Lapis 2: Blokir dari Server WA
                             await sock.updateBlockStatus(cleanJid, 'block');
-                            console.log(`[BERHASIL] Server WA telah memblokir nomor ${cleanJid}`);
-                            
-                            // Buka Blokir setelah 15 detik
-                            setTimeout(async () => {
-                                try {
-                                    await sock.updateBlockStatus(cleanJid, 'unblock');
-                                    console.log(`[ACTION] Blokir dibuka untuk: ${cleanJid}`);
-                                    spamCount.delete(callerId); // Reset hitungan
-                                } catch (err) {
-                                    console.log(`[GAGAL UNBLOCK] Error: ${err.message}`);
-                                }
-                            }, 15000);
-                            
+                            console.log(`[BERHASIL] Server WA memblokir: ${cleanJid}`);
                         } catch (err) {
-                            console.log(`[GAGAL BLOKIR] Error: ${err.message}`);
+                            console.log(`[GAGAL BLOKIR SERVER] Error: ${err.message} (Namun Blacklist Lokal tetap aktif!)`);
                         }
-                    }, 1500);
-                }
-                else if (count > 3) {
-                    // Jika panggilan ke-4 dst lolos saat jeda server, tolak instan tanpa kirim pesan
-                    console.log(`[ACTION] Panggilan ke-${count} ditolak instan (Dalam masa blokir).`);
+                    }, 2000);
+
+                    // Buka Blokir setelah 15 detik
+                    setTimeout(async () => {
+                        try {
+                            await sock.updateBlockStatus(cleanJid, 'unblock');
+                            console.log(`[ACTION] Blokir server dibuka untuk: ${cleanJid}`);
+                        } catch (err) {
+                            console.log(`[GAGAL UNBLOCK SERVER] Error: ${err.message}`);
+                        } finally {
+                            // Selalu pastikan Blacklist Lokal dan hitungan spam di-reset
+                            localBlacklist.delete(cleanJid);
+                            spamCount.delete(cleanJid);
+                            console.log(`[ACTION] Blacklist Lokal dibersihkan untuk: ${cleanJid}`);
+                        }
+                    }, 15000);
                 }
 
-                // Jika tidak ada panggilan lagi dalam 5 menit, reset hitungan peringatan 1/2
+                // Reset hitungan peringatan otomatis jika tidak ada panggilan lagi dalam 5 menit
                 setTimeout(() => {
-                    if (spamCount.has(callerId) && spamCount.get(callerId) < 3) {
-                        spamCount.delete(callerId);
+                    if (spamCount.has(cleanJid) && spamCount.get(cleanJid) < 3) {
+                        spamCount.delete(cleanJid);
                     }
                 }, 300000);
             }
