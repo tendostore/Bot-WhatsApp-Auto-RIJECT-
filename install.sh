@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - VERSI CS TOKO (RAMAH & SOPAN)
-# Fitur: Auto-Yes, Auto-Reboot, Offline Notif, Peringatan 1-2-3, & Auto-Unblock 15s
+# Skrip Install Bot WhatsApp Auto Reject - FIX LOGIKA AUTO BLOCK
+# Fitur: Auto-Yes, Auto-Reboot, Peringatan Bertahap, & Akurasi Blokir 15s
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -53,7 +53,7 @@ const fs = require('fs');
 
 process.on('uncaughtException', console.error);
 
-// Map untuk menyimpan jumlah panggilan dari setiap nomor
+// Map untuk menyimpan jumlah panggilan dari setiap nomor agar akurat
 const spamCount = new Map();
 
 async function startBot() {
@@ -80,9 +80,9 @@ async function startBot() {
                     phoneNumber = phoneNumber.replace(/[^0-9]/g, ''); 
                     const code = await sock.requestPairingCode(phoneNumber);
                     const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+                    
                     console.log(`\n======================================================`);
                     console.log(`📞 KODE PAIRING ANDA: ${formattedCode}`);
-                    console.log(`Buka WA -> Perangkat Tertaut -> Tautkan dengan No. Telepon`);
                     console.log(`======================================================\n`);
                 } catch (err) {
                     console.log('Gagal request kode pairing:', err.message);
@@ -96,77 +96,74 @@ async function startBot() {
                 setTimeout(() => startBot(), 5000);
             }
         } else if (connection === 'open') {
-            console.log('✅ Bot Terhubung! Status disetel ke Offline agar notif HP bunyi.');
+            console.log('\n✅ BERHASIL! Bot sudah Terhubung ke WhatsApp Anda.');
+            console.log('Status WhatsApp disetel ke Offline agar notifikasi HP tetap bunyi.\n');
             await sock.sendPresenceUpdate('unavailable');
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // AUTO REJECT CALL/VC DENGAN PESAN CS TOKO (RAMAH) & BLOKIR 15 DETIK
+    // LOGIKA AUTO REJECT & BLOCK BERTAHAP
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
-                console.log(`❌ Menolak panggilan dari ${c.from}`);
+                const callerId = c.from;
+                console.log(`\n[CALL] Panggilan masuk dari: ${callerId}`);
                 
-                // 1. Langsung tolak panggilan detik itu juga
-                await sock.rejectCall(c.id, c.from);
+                // 1. Tolak panggilan secara instan
+                await sock.rejectCall(c.id, callerId);
                 
-                // 2. Hitung jumlah panggilan masuk dari nomor ini
-                let currentCount = spamCount.get(c.from) || 0;
-                currentCount++;
-                spamCount.set(c.from, currentCount);
+                // 2. Update hitungan spam
+                let count = (spamCount.get(callerId) || 0) + 1;
+                spamCount.set(callerId, count);
+                
+                console.log(`[STATUS] Akumulasi panggilan nomor ini: ${count}/3`);
 
-                if (currentCount === 1) {
-                    // Panggilan Pertama: Pesan CS Toko Sopan
-                    await sock.sendMessage(c.from, { 
-                        text: 'Halo kak! 🙏\n\nMohon maaf sekali, saat ini kami hanya melayani via pesan teks (chat) agar semua pesanan dan pertanyaan pelanggan bisa terlayani dengan baik. \n\nSilakan ketikkan pesan kakak di sini ya. Terima kasih! 🛒✨' 
+                if (count === 1) {
+                    await sock.sendMessage(callerId, { 
+                        text: 'Halo kak! 🙏\n\nMohon maaf sekali, saat ini kami hanya melayani via pesan teks (chat) agar semua pertanyaan bisa terlayani dengan baik. \n\nSilakan ketikkan pesan kakak di sini ya. Terima kasih! 🛒✨' 
                     });
                 } 
-                else if (currentCount === 2) {
-                    // Panggilan Kedua: Peringatan Halus dari Sistem
-                    await sock.sendMessage(c.from, { 
-                        text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem bot kami mendeteksi panggilan suara/video secara berulang. Silakan gunakan pesan teks saja ya kak agar sistem kami tidak error.\n\nJika panggilan dilanjutkan, sistem bot akan memblokir nomor kakak sementara.' 
+                else if (count === 2) {
+                    await sock.sendMessage(callerId, { 
+                        text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem mendeteksi panggilan berulang. Silakan gunakan pesan teks saja agar sistem tidak error.\n\nJika panggilan dilanjutkan (ke-3), sistem akan memblokir nomor kakak sementara.' 
                     });
                 } 
-                else if (currentCount >= 3) {
-                    // Panggilan Ketiga: Blokir Otomatis dengan Pesan Mohon Maaf
-                    console.log(`🚨 AUTO-BLOCK: Memblokir nomor ${c.from} selama 15 DETIK.`);
+                else if (count >= 3) {
+                    console.log(`[ACTION] Memblokir ${callerId} selama 15 detik...`);
                     
-                    await sock.sendMessage(c.from, { 
-                        text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, untuk menjaga kestabilan antrean chat kami, nomor ini telah diblokir sementara secara otomatis selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih atas pengertiannya 🙏' 
+                    await sock.sendMessage(callerId, { 
+                        text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, nomor ini telah diblokir sementara selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih 🙏' 
                     });
                     
-                    // Eksekusi pemblokiran nomor
-                    await sock.updateBlockStatus(c.from, 'block');
+                    // Eksekusi Blokir
+                    await sock.updateBlockStatus(callerId, 'block');
                     
-                    // Auto-Unblock setelah 15 DETIK (15000 milidetik)
+                    // Buka Blokir setelah 15 detik
                     setTimeout(async () => {
                         try {
-                            await sock.updateBlockStatus(c.from, 'unblock');
-                            console.log(`🔓 UNBANNED: Nomor ${c.from} telah dibuka blokirnya.`);
-                            
-                            // Reset hitungan spam kembali ke nol
-                            spamCount.delete(c.from);
+                            await sock.updateBlockStatus(callerId, 'unblock');
+                            console.log(`[ACTION] Blokir dibuka untuk: ${callerId}`);
+                            spamCount.delete(callerId); // Reset hitungan
                         } catch (err) {
-                            console.log(`Gagal unblock nomor ${c.from}:`, err.message);
+                            console.log(`Gagal unblock: ${err.message}`);
                         }
                     }, 15000);
                 }
 
-                // Reset poin spam secara bertahap jika dia berhenti menelpon selama 5 menit
+                // Jika tidak ada panggilan lagi dalam 5 menit, reset hitungan secara otomatis
                 setTimeout(() => {
-                    let reduceCount = spamCount.get(c.from) || 0;
-                    if (reduceCount > 0) {
-                        spamCount.set(c.from, reduceCount - 1);
+                    if (spamCount.has(callerId) && spamCount.get(callerId) < 3) {
+                        spamCount.delete(callerId);
                     }
-                }, 300000); 
+                }, 300000);
             }
         }
     });
 
     sock.ev.on('messages.upsert', async m => {
-        // Biarkan kosong agar pesan tetap unread dan notifikasi HP berbunyi
+        // Biarkan kosong agar notifikasi HP tetap prioritas
     });
 }
 
@@ -174,23 +171,22 @@ startBot();
 EOF
 
 # ==============================================================================
-# 8. PENGINSTALAN SELESAI, SEKARANG MINTA NOMOR WHATSAPP
+# 8. INPUT NOMOR & SETUP PM2
 # ==============================================================================
 echo ""
 echo "=========================================================="
 echo " PENGINSTALAN SELESAI! SEKARANG SETUP NOMOR WHATSAPP ANDA "
 echo "=========================================================="
-echo "Silakan masukkan nomor WhatsApp yang akan digunakan."
-read -p "Nomor WhatsApp: " WA_NUMBER </dev/tty
+read -p "Nomor WhatsApp (Contoh: 628123xxx): " WA_NUMBER </dev/tty
 
 if [[ -z "$WA_NUMBER" ]]; then
-   echo "Error: Nomor WhatsApp tidak boleh kosong!"
+   echo "Error: Nomor tidak boleh kosong!"
    exit 1
 fi
 
 echo "$WA_NUMBER" > wanumber.txt
 
-# 9. Konfigurasi PM2 Auto-Restart
+# Pembersihan proses lama sebelum menjalankan yang baru
 pm2 stop wa-autoreject 2>/dev/null
 pm2 delete wa-autoreject 2>/dev/null
 pm2 start index.js --name "wa-autoreject"
@@ -199,10 +195,14 @@ pm2 save
 sudo env PATH=$PATH:$(dirname $(which node)) $(which pm2) startup systemd -u $(whoami) --hp $(eval echo ~$(whoami))
 pm2 save
 
-# 10. Selesai
+# 9. Tampilan Akhir & Log
+clear
 echo "=========================================================="
 echo "      BOT BERHASIL DIJALANKAN DI BACKGROUND               "
 echo "=========================================================="
-echo "Menunggu Kode Pairing muncul..."
-sleep 4
-pm2 logs wa-autoreject
+echo "1. Buka WhatsApp -> Perangkat Tertaut."
+echo "2. Pilih 'Tautkan dengan nomor telepon saja'."
+echo "3. Masukkan kode pairing di bawah ini."
+echo "=========================================================="
+sleep 2
+tail -f ~/.pm2/logs/wa-autoreject-out.log
