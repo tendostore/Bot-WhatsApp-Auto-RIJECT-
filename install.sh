@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - FIX LOGIKA AUTO BLOCK
-# Fitur: Auto-Yes, Auto-Reboot, Peringatan Bertahap, & Akurasi Blokir 15s
+# Skrip Install Bot WhatsApp Auto Reject - FIX LOGIKA & FORMAT BLOKIR
+# Fitur: Auto-Yes, Auto-Reboot, CS Ramah, & Blokir Multi-Device Akurat
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -108,8 +108,12 @@ async function startBot() {
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
-                const callerId = c.from;
-                console.log(`\n[CALL] Panggilan masuk dari: ${callerId}`);
+                const callerId = c.from; // Contoh: 62812xxx:1@s.whatsapp.net
+                
+                // MENGHAPUS KODE PERANGKAT (:1 dll) AGAR FORMAT BLOKIR DITERIMA SERVER WA
+                const blockJid = callerId.split(':')[0] + '@s.whatsapp.net';
+                
+                console.log(`\n[CALL] Panggilan masuk dari: ${blockJid}`);
                 
                 // 1. Tolak panggilan secara instan
                 await sock.rejectCall(c.id, callerId);
@@ -130,29 +134,39 @@ async function startBot() {
                         text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem mendeteksi panggilan berulang. Silakan gunakan pesan teks saja agar sistem tidak error.\n\nJika panggilan dilanjutkan (ke-3), sistem akan memblokir nomor kakak sementara.' 
                     });
                 } 
-                else if (count >= 3) {
-                    console.log(`[ACTION] Memblokir ${callerId} selama 15 detik...`);
+                else if (count === 3) {
+                    // HANYA EKSEKUSI 1 KALI TEPAT DI PANGGILAN KETIGA (Mencegah Spam Pesan Auto-Block)
+                    console.log(`[ACTION] Memblokir ${blockJid} selama 15 detik...`);
                     
                     await sock.sendMessage(callerId, { 
                         text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, nomor ini telah diblokir sementara selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih 🙏' 
                     });
                     
-                    // Eksekusi Blokir
-                    await sock.updateBlockStatus(callerId, 'block');
+                    // Eksekusi Blokir menggunakan JID yang sudah dibersihkan
+                    try {
+                        await sock.updateBlockStatus(blockJid, 'block');
+                        console.log(`[BERHASIL] Server WA telah memblokir nomor tersebut.`);
+                    } catch (err) {
+                        console.log(`[GAGAL BLOKIR] Error: ${err.message}`);
+                    }
                     
                     // Buka Blokir setelah 15 detik
                     setTimeout(async () => {
                         try {
-                            await sock.updateBlockStatus(callerId, 'unblock');
-                            console.log(`[ACTION] Blokir dibuka untuk: ${callerId}`);
+                            await sock.updateBlockStatus(blockJid, 'unblock');
+                            console.log(`[ACTION] Blokir dibuka untuk: ${blockJid}`);
                             spamCount.delete(callerId); // Reset hitungan
                         } catch (err) {
-                            console.log(`Gagal unblock: ${err.message}`);
+                            console.log(`[GAGAL UNBLOCK] Error: ${err.message}`);
                         }
                     }, 15000);
                 }
+                else if (count > 3) {
+                    // Jika panggilan ke-4, 5 dst masih lolos, diamkan saja tanpa kirim pesan
+                    console.log(`[ACTION] Panggilan ke-${count} ditolak instan (Menunggu eksekusi blokir server/sedang terblokir).`);
+                }
 
-                // Jika tidak ada panggilan lagi dalam 5 menit, reset hitungan secara otomatis
+                // Jika tidak ada panggilan lagi dalam 5 menit, reset hitungan peringatan 1/2
                 setTimeout(() => {
                     if (spamCount.has(callerId) && spamCount.get(callerId) < 3) {
                         spamCount.delete(callerId);
