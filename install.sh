@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - FIX LOGIKA & FORMAT BLOKIR
-# Fitur: Auto-Yes, Auto-Reboot, CS Ramah, & Blokir Multi-Device Akurat
+# Skrip Install Bot WhatsApp Auto Reject - FIX FATAL ERROR BLOKIR
+# Fitur: Auto-Yes, Auto-Reboot, CS Ramah, & Blokir Multi-Device Akurat 100%
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -108,12 +108,12 @@ async function startBot() {
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
-                const callerId = c.from; // Contoh: 62812xxx:1@s.whatsapp.net
+                const callerId = c.from; 
                 
-                // MENGHAPUS KODE PERANGKAT (:1 dll) AGAR FORMAT BLOKIR DITERIMA SERVER WA
-                const blockJid = callerId.split(':')[0] + '@s.whatsapp.net';
+                // PERBAIKAN FATAL: Memastikan JID benar-benar bersih agar server WA tidak menolak perintah
+                const cleanJid = callerId.split('@')[0].split(':')[0] + '@s.whatsapp.net';
                 
-                console.log(`\n[CALL] Panggilan masuk dari: ${blockJid}`);
+                console.log(`\n[CALL] Panggilan masuk dari: ${cleanJid}`);
                 
                 // 1. Tolak panggilan secara instan
                 await sock.rejectCall(c.id, callerId);
@@ -135,35 +135,38 @@ async function startBot() {
                     });
                 } 
                 else if (count === 3) {
-                    // HANYA EKSEKUSI 1 KALI TEPAT DI PANGGILAN KETIGA (Mencegah Spam Pesan Auto-Block)
-                    console.log(`[ACTION] Memblokir ${blockJid} selama 15 detik...`);
+                    // Eksekusi Panggilan Ketiga
+                    console.log(`[ACTION] Persiapan memblokir ${cleanJid} selama 15 detik...`);
                     
                     await sock.sendMessage(callerId, { 
                         text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, nomor ini telah diblokir sementara selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih 🙏' 
                     });
                     
-                    // Eksekusi Blokir menggunakan JID yang sudah dibersihkan
-                    try {
-                        await sock.updateBlockStatus(blockJid, 'block');
-                        console.log(`[BERHASIL] Server WA telah memblokir nomor tersebut.`);
-                    } catch (err) {
-                        console.log(`[GAGAL BLOKIR] Error: ${err.message}`);
-                    }
-                    
-                    // Buka Blokir setelah 15 detik
+                    // JEDA 1.5 DETIK: Memastikan pesan terkirim sempurna sebelum WA memutus jalur
                     setTimeout(async () => {
                         try {
-                            await sock.updateBlockStatus(blockJid, 'unblock');
-                            console.log(`[ACTION] Blokir dibuka untuk: ${blockJid}`);
-                            spamCount.delete(callerId); // Reset hitungan
+                            await sock.updateBlockStatus(cleanJid, 'block');
+                            console.log(`[BERHASIL] Server WA telah memblokir nomor ${cleanJid}`);
+                            
+                            // Buka Blokir setelah 15 detik
+                            setTimeout(async () => {
+                                try {
+                                    await sock.updateBlockStatus(cleanJid, 'unblock');
+                                    console.log(`[ACTION] Blokir dibuka untuk: ${cleanJid}`);
+                                    spamCount.delete(callerId); // Reset hitungan
+                                } catch (err) {
+                                    console.log(`[GAGAL UNBLOCK] Error: ${err.message}`);
+                                }
+                            }, 15000);
+                            
                         } catch (err) {
-                            console.log(`[GAGAL UNBLOCK] Error: ${err.message}`);
+                            console.log(`[GAGAL BLOKIR] Error: ${err.message}`);
                         }
-                    }, 15000);
+                    }, 1500);
                 }
                 else if (count > 3) {
-                    // Jika panggilan ke-4, 5 dst masih lolos, diamkan saja tanpa kirim pesan
-                    console.log(`[ACTION] Panggilan ke-${count} ditolak instan (Menunggu eksekusi blokir server/sedang terblokir).`);
+                    // Jika panggilan ke-4 dst lolos saat jeda server, tolak instan tanpa kirim pesan
+                    console.log(`[ACTION] Panggilan ke-${count} ditolak instan (Dalam masa blokir).`);
                 }
 
                 // Jika tidak ada panggilan lagi dalam 5 menit, reset hitungan peringatan 1/2
