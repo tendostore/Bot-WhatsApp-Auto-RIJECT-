@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - BLOKIR SEMENTARA 30 DETIK
-# Fitur: Auto-Yes, Auto-Reboot, Offline Notif, Peringatan 3x, & Auto-Unblock 30s
+# Skrip Install Bot WhatsApp Auto Reject - VERSI CS TOKO (RAMAH & SOPAN)
+# Fitur: Auto-Yes, Auto-Reboot, Offline Notif, Peringatan 1-2-3, & Auto-Unblock 15s
 # ==============================================================================
 
 export DEBIAN_FRONTEND=noninteractive
@@ -53,9 +53,8 @@ const fs = require('fs');
 
 process.on('uncaughtException', console.error);
 
-// Set & Map untuk sistem Anti-Spam dan Auto-Block
-const callCooldown = new Set();
-const spamCount = new Map(); // Menyimpan jumlah panggilan dari setiap nomor
+// Map untuk menyimpan jumlah panggilan dari setiap nomor
+const spamCount = new Map();
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -104,7 +103,7 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    // AUTO REJECT CALL/VC DENGAN BLOKIR SEMENTARA 30 DETIK
+    // AUTO REJECT CALL/VC DENGAN PESAN CS TOKO (RAMAH) & BLOKIR 15 DETIK
     sock.ev.on('call', async (call) => {
         for (let c of call) {
             if (c.status === 'offer') {
@@ -118,57 +117,50 @@ async function startBot() {
                 currentCount++;
                 spamCount.set(c.from, currentCount);
 
-                // Jika sudah menelpon 3 kali berturut-turut, otomatis di-Blokir Sementara
-                if (currentCount >= 3) {
-                    console.log(`🚨 BANNED: Memblokir nomor ${c.from} selama 30 DETIK karena Spam Call.`);
-                    
-                    // Kirim pesan terakhir sebelum diblokir (Menyebutkan 30 detik)
+                if (currentCount === 1) {
+                    // Panggilan Pertama: Pesan CS Toko Sopan
                     await sock.sendMessage(c.from, { 
-                        text: '🛑 *Peringatan Sistem*\n\nAnda terdeteksi melakukan SPAM panggilan secara berulang. Sesuai peringatan, nomor Anda kini *DIBLOKIR SEMENTARA* selama 30 Detik.' 
+                        text: 'Halo kak! 🙏\n\nMohon maaf sekali, saat ini kami hanya melayani via pesan teks (chat) agar semua pesanan dan pertanyaan pelanggan bisa terlayani dengan baik. \n\nSilakan ketikkan pesan kakak di sini ya. Terima kasih! 🛒✨' 
+                    });
+                } 
+                else if (currentCount === 2) {
+                    // Panggilan Kedua: Peringatan Halus dari Sistem
+                    await sock.sendMessage(c.from, { 
+                        text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem bot kami mendeteksi panggilan suara/video secara berulang. Silakan gunakan pesan teks saja ya kak agar sistem kami tidak error.\n\nJika panggilan dilanjutkan, sistem bot akan memblokir nomor kakak sementara.' 
+                    });
+                } 
+                else if (currentCount >= 3) {
+                    // Panggilan Ketiga: Blokir Otomatis dengan Pesan Mohon Maaf
+                    console.log(`🚨 AUTO-BLOCK: Memblokir nomor ${c.from} selama 15 DETIK.`);
+                    
+                    await sock.sendMessage(c.from, { 
+                        text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, untuk menjaga kestabilan antrean chat kami, nomor ini telah diblokir sementara secara otomatis selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih atas pengertiannya 🙏' 
                     });
                     
                     // Eksekusi pemblokiran nomor
                     await sock.updateBlockStatus(c.from, 'block');
                     
-                    // Fitur Auto-Unblock setelah 30 Detik (30000 milidetik)
+                    // Auto-Unblock setelah 15 DETIK (15000 milidetik)
                     setTimeout(async () => {
                         try {
                             await sock.updateBlockStatus(c.from, 'unblock');
                             console.log(`🔓 UNBANNED: Nomor ${c.from} telah dibuka blokirnya.`);
                             
-                            // Reset hitungan spam kembali ke nol setelah di-unblock
+                            // Reset hitungan spam kembali ke nol
                             spamCount.delete(c.from);
                         } catch (err) {
                             console.log(`Gagal unblock nomor ${c.from}:`, err.message);
                         }
-                    }, 30000);
-
-                    continue; // Hentikan proses selanjutnya untuk nomor ini
-                }
-                
-                // 3. Sistem Cooldown Pesan Peringatan Biasa (10 Detik)
-                if (!callCooldown.has(c.from)) {
-                    // Kirim pesan peringatan (Ditambahkan info akan diblokir jika 3x call)
-                    await sock.sendMessage(c.from, { 
-                        text: '🤖 *Pesan Otomatis*\n\nMohon maaf, saya sedang tidak bisa menerima panggilan (Call/VC). Silakan kirim pesan teks saja.\n\n⚠️ *Catatan:* Jika Anda melakukan panggilan hingga 3x berturut-turut, sistem akan memblokir nomor Anda secara otomatis.' 
-                    });
-                    
-                    // Masukkan ke daftar cooldown
-                    callCooldown.add(c.from);
-                    
-                    // Hapus dari cooldown pesan setelah 10 detik
-                    setTimeout(() => {
-                        callCooldown.delete(c.from);
-                    }, 10000);
+                    }, 15000);
                 }
 
-                // 4. Pengurangan otomatis poin spam jika dia berhenti menelpon secara wajar (reset bertahap tiap 2 menit)
+                // Reset poin spam secara bertahap jika dia berhenti menelpon selama 5 menit
                 setTimeout(() => {
                     let reduceCount = spamCount.get(c.from) || 0;
                     if (reduceCount > 0) {
                         spamCount.set(c.from, reduceCount - 1);
                     }
-                }, 120000); 
+                }, 300000); 
             }
         }
     });
