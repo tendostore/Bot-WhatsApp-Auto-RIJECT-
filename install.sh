@@ -1,231 +1,135 @@
 #!/bin/bash
-
-# ==============================================================================
-# Skrip Install Bot WhatsApp Auto Reject - VERSI KEMBALI KE BLOKIR 15 DETIK
-# Fitur: Auto-Yes, CS Ramah, & Auto-Unblock Akurat 15 Detik (Support @lid)
-# ==============================================================================
-
-export DEBIAN_FRONTEND=noninteractive
-
 clear
-echo "=========================================================="
-echo "       SETUP BOT WHATSAPP AUTO REJECT (CALL/VC)           "
-echo "=========================================================="
-echo "Memulai Proses Instalasi. Silakan duduk manis..."
-echo "Sistem akan menginstal semuanya terlebih dahulu."
-echo "=========================================================="
+echo "=========================================="
+echo "  AUTO-INSTALL WA BOT ANTI-CALL PAIRING   "
+echo "=========================================="
+echo ""
 
-# 1. Update & Upgrade Sistem VPS
-sudo apt-get update -y
-sudo apt-get upgrade -y
+# 1. Cek & Install Node.js otomatis
+if ! command -v node &> /dev/null; then
+    echo "[*] Node.js belum ada. Memulai instalasi..."
+    if command -v pkg &> /dev/null; then
+        pkg update -y && pkg upgrade -y
+        pkg install nodejs -y
+    elif command -v apt &> /dev/null; then
+        sudo apt update && sudo apt install nodejs npm -y
+    else
+        echo "[!] OS tidak didukung untuk instalasi Node.js otomatis."
+        exit 1
+    fi
+fi
 
-# 2. Instal dependensi dasar
-sudo apt-get install -y curl git build-essential tzdata
+# 2. Membuat Folder Project
+echo "[*] Menyiapkan folder bot..."
+mkdir -p wa-bot-anticall
+cd wa-bot-anticall
 
-# 3. Instal Node.js (Versi LTS 20)
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
+# 3. Membuat file package.json otomatis
+echo "[*] Membuat konfigurasi package.json..."
+cat << 'EOF' > package.json
+{
+  "name": "wa-bot-anticall",
+  "main": "index.js",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.6.0",
+    "pino": "^8.19.0",
+    "readline": "^1.3.0"
+  }
+}
+EOF
 
-# Update npm ke versi paling baru
-sudo npm install -g npm@latest
-
-# 4. Instal PM2 versi terbaru
-sudo npm install -g pm2@latest
-
-# 5. Membuat direktori kerja bot
-BOT_DIR="$HOME/bot-autoreject"
-mkdir -p $BOT_DIR
-cd $BOT_DIR
-
-# 6. Inisialisasi Project dan Instal dependensi bot
-npm init -y
-npm install @whiskeysockets/baileys@latest pino@latest
-npm update 
-
-# HAPUS SESI LAMA: Memastikan instalasi bersih
-rm -rf auth_info_baileys
-
-# 7. Membuat file utama bot (index.js)
+# 4. Membuat file index.js otomatis (DENGAN PESAN BERTINGKAT)
+echo "[*] Menulis script utama bot..."
 cat << 'EOF' > index.js
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers, fetchLatestBaileysVersion, jidNormalizedUser } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const pino = require('pino');
-const fs = require('fs');
-
-process.on('uncaughtException', console.error);
-
-// Map & Set untuk sistem Anti-Spam dan Blacklist Lokal
-const spamCount = new Map();
-const localBlacklist = new Set(); 
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+const callCounts = {}; 
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const { version } = await fetchLatestBaileysVersion();
-
     const sock = makeWASocket({
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        auth: state,
-        browser: Browsers.ubuntu('Chrome'),
-        markOnlineOnConnect: false, 
-        syncFullHistory: false
+        auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })) },
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    sock.ev.on('connection.update', async (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr && !sock.authState.creds.registered) {
-            setTimeout(async () => {
-                try {
-                    let phoneNumber = fs.readFileSync('wanumber.txt', 'utf8').trim();
-                    phoneNumber = phoneNumber.replace(/[^0-9]/g, ''); 
-                    const code = await sock.requestPairingCode(phoneNumber);
-                    const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-                    
-                    console.log(`\n======================================================`);
-                    console.log(`📞 KODE PAIRING ANDA: ${formattedCode}`);
-                    console.log(`======================================================\n`);
-                } catch (err) {
-                    console.log('Gagal request kode pairing:', err.message);
-                }
-            }, 5000); 
-        }
-
-        if (connection === 'close') {
-            const statusCode = lastDisconnect.error?.output?.statusCode;
-            if (statusCode !== DisconnectReason.loggedOut) {
-                setTimeout(() => startBot(), 5000);
-            }
-        } else if (connection === 'open') {
-            console.log('\n✅ BERHASIL! Bot sudah Terhubung ke WhatsApp Anda.');
-            console.log('Status WhatsApp disetel ke Offline agar notifikasi HP tetap bunyi.\n');
-            await sock.sendPresenceUpdate('unavailable');
-        }
-    });
-
+    if (!sock.authState.creds.registered) {
+        console.clear();
+        console.log("========================================");
+        console.log("   WHATSAPP BOT ANTI-CALL PAIRING");
+        console.log("========================================\n");
+        const phoneNumber = await question('Masukkan nomor WA (Contoh: 62812xxx): ');
+        const code = await sock.requestPairingCode(phoneNumber.replace(/[^0-9]/g, ''));
+        console.log(`\n> KODE PAIRING ANDA: ${code} <\n`);
+    }
+    
     sock.ev.on('creds.update', saveCreds);
-
-    // LOGIKA AUTO REJECT & BLOKIR SEMENTARA 15 DETIK
-    sock.ev.on('call', async (call) => {
-        for (let c of call) {
-            if (c.status === 'offer') {
-                const callerId = c.from; 
-                const cleanJid = jidNormalizedUser(callerId); 
-                
-                // PERTAHANAN LAPIS 1: Cek apakah nomor ini sedang dalam status Blacklist 15 Detik
-                if (localBlacklist.has(cleanJid)) {
-                    await sock.rejectCall(c.id, callerId);
-                    console.log(`[SHIELD] Meredam panggilan dari nomor terblokir: ${cleanJid}`);
-                    continue;
-                }
-
-                console.log(`\n[CALL] Panggilan masuk dari: ${cleanJid}`);
-                
-                // Tolak panggilan instan
-                await sock.rejectCall(c.id, callerId);
-                
-                // Update hitungan spam
-                let count = (spamCount.get(cleanJid) || 0) + 1;
-                spamCount.set(cleanJid, count);
-                
-                console.log(`[STATUS] Akumulasi panggilan nomor ini: ${count}/3`);
-
-                if (count === 1) {
-                    await sock.sendMessage(cleanJid, { 
-                        text: 'Halo kak! 🙏\n\nMohon maaf sekali, saat ini kami hanya melayani via pesan teks (chat) agar semua pertanyaan bisa terlayani dengan baik. \n\nSilakan ketikkan pesan kakak di sini ya. Terima kasih! 🛒✨' 
-                    });
-                } 
-                else if (count === 2) {
-                    await sock.sendMessage(cleanJid, { 
-                        text: '🤖 *Info Sistem Bot*\n\nMohon pengertiannya ya kak 🙏, sistem mendeteksi panggilan berulang. Silakan gunakan pesan teks saja agar sistem tidak error.\n\nJika panggilan dilanjutkan (ke-3), sistem akan memblokir nomor kakak sementara.' 
-                    });
-                } 
-                else if (count >= 3) {
-                    console.log(`[ACTION] Mengaktifkan pemblokiran untuk ${cleanJid} selama 15 detik...`);
-                    
-                    // Masukkan ke Blacklist Lokal
-                    localBlacklist.add(cleanJid);
-
-                    await sock.sendMessage(cleanJid, { 
-                        text: '🤖 *Sistem Auto-Block*\n\nMohon maaf kak, nomor ini telah diblokir sementara selama 15 detik karena panggilan beruntun. \n\nSilakan tinggalkan pesan teks setelah blokir terbuka ya kak. Terima kasih 🙏' 
-                    });
-                    
-                    // Mencoba blokir dari Server WA
-                    setTimeout(async () => {
-                        try {
-                            await sock.updateBlockStatus(cleanJid, 'block');
-                            console.log(`[BERHASIL] Server WA memblokir: ${cleanJid}`);
-                        } catch (err) {
-                            console.log(`[INFO] Server WA menolak blokir, namun Local Shield tetap aktif!`);
-                        }
-                    }, 1500);
-
-                    // Buka Blokir otomatis setelah 15 detik
-                    setTimeout(async () => {
-                        try {
-                            await sock.updateBlockStatus(cleanJid, 'unblock');
-                            console.log(`[ACTION] Blokir server dibuka untuk: ${cleanJid}`);
-                        } catch (err) {
-                            console.log(`[GAGAL UNBLOCK SERVER] Error: ${err.message}`);
-                        } finally {
-                            localBlacklist.delete(cleanJid);
-                            spamCount.delete(cleanJid);
-                            console.log(`[ACTION] Blacklist Lokal dibersihkan untuk: ${cleanJid}`);
-                        }
-                    }, 15000);
-                }
-
-                // Reset hitungan jika berhenti menelpon selama 5 menit
-                setTimeout(() => {
-                    if (spamCount.has(cleanJid) && !localBlacklist.has(cleanJid) && spamCount.get(cleanJid) < 3) {
-                        spamCount.delete(cleanJid);
-                    }
-                }, 300000);
-            }
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            if (lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut) startBot();
+        } else if (connection === 'open') {
+            console.log('✅ Bot Berhasil Terhubung!');
         }
     });
 
-    sock.ev.on('messages.upsert', async m => {
-        // Biarkan kosong agar notifikasi HP tetap prioritas
+    sock.ev.on('call', async (node) => {
+        for (let call of node) {
+            if (call.status === 'offer') {
+                const callerId = call.from;
+                
+                // Tolak panggilan seketika
+                await sock.rejectCall(call.id, callerId);
+                console.log(`[!] Panggilan ditolak dari ${callerId.split('@')[0]}`);
+                
+                // Tambah hitungan panggilan
+                callCounts[callerId] = (callCounts[callerId] || 0) + 1;
+                const count = callCounts[callerId];
+
+                // --- LOGIKA PESAN BERTINGKAT ---
+                if (count === 1) {
+                    console.log(`[⚠️] Peringatan 1 dikirim ke ${callerId.split('@')[0]}`);
+                    await sock.sendMessage(callerId, { text: "⚠️ *PERINGATAN 1*\nMaaf, sistem kami tidak menerima panggilan telepon. Mohon kirimkan pesan teks saja." });
+                
+                } else if (count === 2) {
+                    console.log(`[⚠️] Peringatan 2 dikirim ke ${callerId.split('@')[0]}`);
+                    await sock.sendMessage(callerId, { text: "⚠️ *PERINGATAN 2*\nTolong jangan menelpon lagi. Jika Anda menelpon sekali lagi, nomor Anda akan diblokir otomatis oleh sistem." });
+                
+                } else if (count >= 3) {
+                    console.log(`[🚫] Memblokir ${callerId.split('@')[0]} (3x spam telepon)...`);
+                    
+                    // Kirim pesan blokir
+                    await sock.sendMessage(callerId, { text: "🚫 *DIBLOKIR SEMENTARA*\nAnda terdeteksi melakukan spam panggilan. Nomor Anda diblokir selama 15 detik." });
+                    
+                    // Beri jeda 1 detik agar pesan WA terkirim sebelum diblokir
+                    setTimeout(async () => {
+                        await sock.updateBlockStatus(callerId, 'block');
+                        
+                        // Timer Unblock 15 Detik
+                        setTimeout(async () => {
+                            console.log(`[✅] Membuka blokir ${callerId.split('@')[0]} setelah 15 detik...`);
+                            await sock.updateBlockStatus(callerId, 'unblock');
+                            delete callCounts[callerId]; // Reset hitungan
+                        }, 15000);
+                    }, 1000);
+                }
+            }
+        }
     });
 }
-
 startBot();
 EOF
 
-# ==============================================================================
-# 8. INPUT NOMOR & SETUP PM2
-# ==============================================================================
-echo ""
-echo "=========================================================="
-echo " PENGINSTALAN SELESAI! SEKARANG SETUP NOMOR WHATSAPP ANDA "
-echo "=========================================================="
-read -p "Nomor WhatsApp (Contoh: 628123xxx): " WA_NUMBER </dev/tty
+# 5. Proses Instalasi Library
+echo "[*] Menginstal library Baileys (Mohon tunggu sebentar)..."
+npm install > /dev/null 2>&1
 
-if [[ -z "$WA_NUMBER" ]]; then
-   echo "Error: Nomor tidak boleh kosong!"
-   exit 1
-fi
-
-echo "$WA_NUMBER" > wanumber.txt
-
-# Pembersihan proses lama sebelum menjalankan yang baru
-pm2 stop wa-autoreject 2>/dev/null
-pm2 delete wa-autoreject 2>/dev/null
-pm2 start index.js --name "wa-autoreject"
-pm2 save
-
-sudo env PATH=$PATH:$(dirname $(which node)) $(which pm2) startup systemd -u $(whoami) --hp $(eval echo ~$(whoami))
-pm2 save
-
-# 9. Tampilan Akhir & Log
-clear
-echo "=========================================================="
-echo "      BOT BERHASIL DIJALANKAN DI BACKGROUND               "
-echo "=========================================================="
-echo "1. Buka WhatsApp -> Perangkat Tertaut."
-echo "2. Pilih 'Tautkan dengan nomor telepon saja'."
-echo "3. Masukkan kode pairing di bawah ini."
-echo "=========================================================="
-sleep 2
-tail -f ~/.pm2/logs/wa-autoreject-out.log
+# 6. Menjalankan Bot
+echo "[*] Instalasi selesai! Memulai bot..."
+node index.js
