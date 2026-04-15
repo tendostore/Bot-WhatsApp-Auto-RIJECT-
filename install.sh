@@ -63,7 +63,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const callCounts = {}; 
-const processedCalls = new Set(); // FITUR BARU: Anti Duplicate Event
+const processedCalls = new Set(); 
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -105,13 +105,10 @@ async function startBot() {
     sock.ev.on('call', async (node) => {
         for (let call of node) {
             if (call.status === 'offer') {
-                // FITUR BARU: Cegah pemrosesan panggilan yang sama berulang kali di detik yang sama
                 if (processedCalls.has(call.id)) continue;
                 processedCalls.add(call.id);
 
                 const callerId = call.from;
-                
-                // Pembersihan nomor secara ekstrem untuk mencegah error format
                 const cleanNumber = callerId.split('@')[0].split(':')[0];
                 const cleanJid = cleanNumber + '@s.whatsapp.net';
 
@@ -124,11 +121,10 @@ async function startBot() {
                     if (count === 1) {
                         await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 1*\nMohon maaf, saya tidak menerima panggilan. Silakan chat saja." });
                     } else if (count === 2) {
-                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 2*\nJangan menelpon lagi atau nomor Anda akan diblokir otomatis oleh sistem." });
-                    } else if (count >= 3) {
-                        await sock.sendMessage(cleanJid, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 15 detik karena spam panggilan." });
+                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 2*\nJangan menelpon lagi atau nomor Anda akan diblokir otomatis oleh sistem selama 30 detik." });
+                    } else if (count === 3) { // HANYA EKSEKUSI TEPAT DI PANGGILAN KE-3
+                        await sock.sendMessage(cleanJid, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 30 detik karena spam panggilan." });
                         
-                        // Jeda agar pesan peringatan terkirim dulu sebelum akses diblokir
                         setTimeout(async () => {
                             try {
                                 await sock.updateBlockStatus(cleanJid, 'block');
@@ -142,11 +138,14 @@ async function startBot() {
                                     } catch (e) {
                                         console.log(`[!] Gagal unblock ${cleanNumber}:`, e.message);
                                     }
-                                }, 15000); // Timer 15 Detik
+                                }, 30000); // Timer diubah menjadi 30 Detik
                             } catch (e) {
                                 console.log(`[!] Gagal block ${cleanNumber}:`, e.message);
                             }
                         }, 1000);
+                    } else if (count > 3) {
+                        // Jika memaksa nelpon terus (count ke 4, 5, dst), cukup reject diam-diam. Jangan spam chat & request block lagi.
+                        console.log(`[!] Menolak spammer ${cleanNumber} (Sedang proses blokir)`);
                     }
                 } catch (e) {
                     console.log(`[!] Error memproses panggilan dari ${cleanNumber}:`, e.message);
@@ -167,3 +166,4 @@ echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
+
