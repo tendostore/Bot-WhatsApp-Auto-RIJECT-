@@ -61,7 +61,9 @@ const readline = require('readline');
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
+
 const callCounts = {}; 
+const processedCalls = new Set(); // FITUR BARU: Anti Duplicate Event
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -103,11 +105,15 @@ async function startBot() {
     sock.ev.on('call', async (node) => {
         for (let call of node) {
             if (call.status === 'offer') {
+                // FITUR BARU: Cegah pemrosesan panggilan yang sama berulang kali di detik yang sama
+                if (processedCalls.has(call.id)) continue;
+                processedCalls.add(call.id);
+
                 const callerId = call.from;
                 
-                // Membersihkan ID dari kode device (contoh: 62812..:1@s.whatsapp.net -> 62812..@s.whatsapp.net)
-                const cleanJid = callerId.includes(':') ? callerId.split(':')[0] + '@s.whatsapp.net' : callerId;
-                const cleanNumber = cleanJid.split('@')[0];
+                // Pembersihan nomor secara ekstrem untuk mencegah error format
+                const cleanNumber = callerId.split('@')[0].split(':')[0];
+                const cleanJid = cleanNumber + '@s.whatsapp.net';
 
                 try {
                     await sock.rejectCall(call.id, callerId);
@@ -122,10 +128,11 @@ async function startBot() {
                     } else if (count >= 3) {
                         await sock.sendMessage(cleanJid, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 15 detik karena spam panggilan." });
                         
+                        // Jeda agar pesan peringatan terkirim dulu sebelum akses diblokir
                         setTimeout(async () => {
                             try {
                                 await sock.updateBlockStatus(cleanJid, 'block');
-                                console.log(`[🚫] Memblokir ${cleanNumber}`);
+                                console.log(`[🚫] Berhasil memblokir ${cleanNumber}`);
 
                                 setTimeout(async () => {
                                     try {
@@ -135,7 +142,7 @@ async function startBot() {
                                     } catch (e) {
                                         console.log(`[!] Gagal unblock ${cleanNumber}:`, e.message);
                                     }
-                                }, 15000);
+                                }, 15000); // Timer 15 Detik
                             } catch (e) {
                                 console.log(`[!] Gagal block ${cleanNumber}:`, e.message);
                             }
@@ -160,4 +167,3 @@ echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
-
