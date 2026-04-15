@@ -24,23 +24,23 @@ echo "[*] Menyiapkan folder bot..."
 mkdir -p wa-bot-anticall
 cd wa-bot-anticall
 
-# 3. Membuat file package.json otomatis
+# 3. Membuat file package.json (Kosongan agar otomatis diisi versi terbaru)
 echo "[*] Membuat konfigurasi package.json..."
 cat << 'EOF' > package.json
 {
   "name": "wa-bot-anticall",
-  "main": "index.js",
-  "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
-    "pino": "^8.19.0",
-    "readline": "^1.3.0"
-  }
+  "main": "index.js"
 }
 EOF
 
-# 4. Membuat file index.js otomatis (DENGAN PESAN BERTINGKAT)
+# 4. Membuat file index.js otomatis
 echo "[*] Menulis script utama bot..."
 cat << 'EOF' > index.js
+// --- FIX UNTUK ERROR CRYPTO DI NODE.JS v18 ---
+const crypto = require('crypto');
+if (!global.crypto) global.crypto = crypto.webcrypto;
+// ---------------------------------------------
+
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const readline = require('readline');
@@ -84,15 +84,12 @@ async function startBot() {
             if (call.status === 'offer') {
                 const callerId = call.from;
                 
-                // Tolak panggilan seketika
                 await sock.rejectCall(call.id, callerId);
                 console.log(`[!] Panggilan ditolak dari ${callerId.split('@')[0]}`);
                 
-                // Tambah hitungan panggilan
                 callCounts[callerId] = (callCounts[callerId] || 0) + 1;
                 const count = callCounts[callerId];
 
-                // --- LOGIKA PESAN BERTINGKAT ---
                 if (count === 1) {
                     console.log(`[⚠️] Peringatan 1 dikirim ke ${callerId.split('@')[0]}`);
                     await sock.sendMessage(callerId, { text: "⚠️ *PERINGATAN 1*\nMaaf, sistem kami tidak menerima panggilan telepon. Mohon kirimkan pesan teks saja." });
@@ -104,18 +101,15 @@ async function startBot() {
                 } else if (count >= 3) {
                     console.log(`[🚫] Memblokir ${callerId.split('@')[0]} (3x spam telepon)...`);
                     
-                    // Kirim pesan blokir
                     await sock.sendMessage(callerId, { text: "🚫 *DIBLOKIR SEMENTARA*\nAnda terdeteksi melakukan spam panggilan. Nomor Anda diblokir selama 15 detik." });
                     
-                    // Beri jeda 1 detik agar pesan WA terkirim sebelum diblokir
                     setTimeout(async () => {
                         await sock.updateBlockStatus(callerId, 'block');
                         
-                        // Timer Unblock 15 Detik
                         setTimeout(async () => {
                             console.log(`[✅] Membuka blokir ${callerId.split('@')[0]} setelah 15 detik...`);
                             await sock.updateBlockStatus(callerId, 'unblock');
-                            delete callCounts[callerId]; // Reset hitungan
+                            delete callCounts[callerId];
                         }, 15000);
                     }, 1000);
                 }
@@ -126,10 +120,11 @@ async function startBot() {
 startBot();
 EOF
 
-# 5. Proses Instalasi Library
-echo "[*] Menginstal library Baileys (Mohon tunggu sebentar)..."
-npm install > /dev/null 2>&1
+# 5. Proses Instalasi Library (OTOMATIS VERSI TERBARU)
+echo "[*] Menginstal library Baileys & Pino versi terbaru (Mohon tunggu sebentar)..."
+npm install @whiskeysockets/baileys pino > /dev/null 2>&1
 
 # 6. Menjalankan Bot
 echo "[*] Instalasi selesai! Memulai bot..."
 node index.js
+
