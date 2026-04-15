@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Warna
 HIJAU='\033[0;32m'
 BIRU='\033[0;34m'
 KUNING='\033[1;33m'
@@ -12,7 +11,6 @@ echo -e "${BIRU}==============================================${NORMAL}"
 echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (ONE-CLICK)  ${NORMAL}"
 echo -e "${BIRU}==============================================${NORMAL}"
 
-# 1. Cek & Paksa Update Node.js ke v20
 echo -e "${KUNING}[*] Mengecek versi Node.js...${NORMAL}"
 if command -v node &> /dev/null; then
     NODE_VER=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
@@ -22,31 +20,24 @@ else
 fi
 
 if [ "$NODE_VER" -lt 20 ]; then
-    echo -e "${KUNING}[*] Modul terbaru butuh Node.js v20+. Melakukan upgrade...${NORMAL}"
+    echo -e "${KUNING}[*] Membutuhkan Node.js v20+. Melakukan upgrade...${NORMAL}"
     if command -v apt &> /dev/null; then
-        # Instalasi untuk Ubuntu/Debian
-        apt-get update
-        apt-get install -y curl
+        apt-get update && apt-get install -y curl
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get install -y nodejs
     elif command -v pkg &> /dev/null; then
-        # Instalasi untuk Termux
         pkg update -y && pkg install nodejs -y
     else
-        echo -e "${MERAH}[!] OS tidak didukung otomatis. Silakan update Node.js manual ke v20.${NORMAL}"
+        echo -e "${MERAH}[!] OS tidak didukung otomatis. Update Node.js manual ke v20.${NORMAL}"
         exit 1
     fi
-else
-    echo -e "${HIJAU}[✓] Versi Node.js sudah memadai (v20+).${NORMAL}"
 fi
 
-# 2. Membuat Folder Project (Hapus folder lama jika ada agar bersih)
 echo -e "${KUNING}[*] Menyiapkan folder project...${NORMAL}"
 rm -rf wa-bot-anticall
 mkdir -p wa-bot-anticall
 cd wa-bot-anticall
 
-# 3. Membuat file package.json
 cat << 'EOF' > package.json
 {
   "name": "wa-bot-anticall",
@@ -56,7 +47,6 @@ cat << 'EOF' > package.json
 }
 EOF
 
-# 4. Membuat file index.js
 echo -e "${KUNING}[*] Menulis script utama (index.js)...${NORMAL}"
 cat << 'EOF' > index.js
 const { 
@@ -114,28 +104,45 @@ async function startBot() {
         for (let call of node) {
             if (call.status === 'offer') {
                 const callerId = call.from;
-                await sock.rejectCall(call.id, callerId);
                 
-                callCounts[callerId] = (callCounts[callerId] || 0) + 1;
-                const count = callCounts[callerId];
+                // Membersihkan ID dari kode device (contoh: 62812..:1@s.whatsapp.net -> 62812..@s.whatsapp.net)
+                const cleanJid = callerId.includes(':') ? callerId.split(':')[0] + '@s.whatsapp.net' : callerId;
+                const cleanNumber = cleanJid.split('@')[0];
 
-                if (count === 1) {
-                    await sock.sendMessage(callerId, { text: "⚠️ *PERINGATAN 1*\nMohon maaf, saya tidak menerima panggilan. Silakan chat saja." });
-                } else if (count === 2) {
-                    await sock.sendMessage(callerId, { text: "⚠️ *PERINGATAN 2*\nJangan menelpon lagi atau nomor Anda akan diblokir otomatis oleh sistem." });
-                } else if (count >= 3) {
-                    await sock.sendMessage(callerId, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 15 detik karena spam panggilan." });
+                try {
+                    await sock.rejectCall(call.id, callerId);
                     
-                    setTimeout(async () => {
-                        await sock.updateBlockStatus(callerId, 'block');
-                        console.log(`[🚫] Memblokir ${callerId.split('@')[0]}`);
+                    callCounts[cleanJid] = (callCounts[cleanJid] || 0) + 1;
+                    const count = callCounts[cleanJid];
 
+                    if (count === 1) {
+                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 1*\nMohon maaf, saya tidak menerima panggilan. Silakan chat saja." });
+                    } else if (count === 2) {
+                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 2*\nJangan menelpon lagi atau nomor Anda akan diblokir otomatis oleh sistem." });
+                    } else if (count >= 3) {
+                        await sock.sendMessage(cleanJid, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 15 detik karena spam panggilan." });
+                        
                         setTimeout(async () => {
-                            await sock.updateBlockStatus(callerId, 'unblock');
-                            console.log(`[✅] Membuka blokir ${callerId.split('@')[0]}`);
-                            delete callCounts[callerId];
-                        }, 15000);
-                    }, 1000);
+                            try {
+                                await sock.updateBlockStatus(cleanJid, 'block');
+                                console.log(`[🚫] Memblokir ${cleanNumber}`);
+
+                                setTimeout(async () => {
+                                    try {
+                                        await sock.updateBlockStatus(cleanJid, 'unblock');
+                                        console.log(`[✅] Membuka blokir ${cleanNumber}`);
+                                        delete callCounts[cleanJid];
+                                    } catch (e) {
+                                        console.log(`[!] Gagal unblock ${cleanNumber}:`, e.message);
+                                    }
+                                }, 15000);
+                            } catch (e) {
+                                console.log(`[!] Gagal block ${cleanNumber}:`, e.message);
+                            }
+                        }, 1000);
+                    }
+                } catch (e) {
+                    console.log(`[!] Error memproses panggilan dari ${cleanNumber}:`, e.message);
                 }
             }
         }
@@ -145,13 +152,12 @@ async function startBot() {
 startBot();
 EOF
 
-# 5. Instalasi Modul
-echo -e "${KUNING}[*] Menginstal library Baileys terbaru... (Agak lama, harap tunggu)${NORMAL}"
+echo -e "${KUNING}[*] Menginstal library Baileys & Pino...${NORMAL}"
 npm install @whiskeysockets/baileys pino
 
-# 6. Selesai
 echo -e "${HIJAU}==============================================${NORMAL}"
 echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
+
