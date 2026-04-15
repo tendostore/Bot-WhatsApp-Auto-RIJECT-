@@ -63,8 +63,7 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         markOnlineOnConnect: false, 
-        syncFullHistory: false, // <-- FIX BARU: Bot tidak akan mensinkronisasi riwayat chat
-        generateHighQualityLinkPreview: false,
+        syncFullHistory: false, 
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
@@ -81,13 +80,15 @@ async function startBot() {
 
     sock.ev.on('creds.update', saveCreds);
 
-    sock.ev.on('connection.update', (update) => {
+    sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ Bot Berhasil Terhubung!');
+            // MEMAKSA STATUS OFFLINE AGAR NOTIFIKASI HP BERBUNYI
+            await sock.sendPresenceUpdate('unavailable');
         }
     });
 
@@ -102,18 +103,29 @@ async function startBot() {
                 const cleanJid = cleanNumber + '@s.whatsapp.net';
 
                 try {
+                    // Tolak Telepon
                     await sock.rejectCall(call.id, callerId);
+                    console.log(`[📞] Ditolak: ${cleanNumber}`);
                     
+                    // Jeda agar pesan tidak bertabrakan dengan penolakan
                     setTimeout(async () => {
                         try {
-                            await sock.sendMessage(cleanJid, { 
-                                text: "⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih." 
-                            });
-                        } catch (msgErr) {}
+                            // Membuat pesan unik setiap saat dengan menambahkan waktu
+                            const timeNow = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' });
+                            const pesanUnik = `⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih.\n\n_Sistem Bot - ${timeNow}_`;
+
+                            await sock.sendMessage(cleanJid, { text: pesanUnik });
+                            console.log(`[✉️] Pesan terkirim ke ${cleanNumber}`);
+                        } catch (msgErr) {
+                            console.log(`[!] Gagal kirim pesan:`, msgErr.message);
+                        }
                     }, 1500);
 
-                    setTimeout(() => processedCalls.delete(call.id), 60000);
-                } catch (e) {}
+                    // Hapus memory panggilan lebih cepat (10 detik)
+                    setTimeout(() => processedCalls.delete(call.id), 10000);
+                } catch (e) {
+                    console.log(`[!] Error sistem:`, e.message);
+                }
             }
         }
     });
