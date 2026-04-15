@@ -1,9 +1,10 @@
 #!/bin/bash
 
-# Warna untuk tampilan terminal
+# Warna
 HIJAU='\033[0;32m'
 BIRU='\033[0;34m'
 KUNING='\033[1;33m'
+MERAH='\033[0;31m'
 NORMAL='\033[0m'
 
 clear
@@ -11,21 +12,37 @@ echo -e "${BIRU}==============================================${NORMAL}"
 echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (ONE-CLICK)  ${NORMAL}"
 echo -e "${BIRU}==============================================${NORMAL}"
 
-# 1. Cek & Install Node.js
-if ! command -v node &> /dev/null; then
-    echo -e "${KUNING}[*] Node.js belum ada. Menginstal Node.js...${NORMAL}"
-    if command -v pkg &> /dev/null; then
-        pkg update -y && pkg install nodejs -y
-    elif command -v apt &> /dev/null; then
-        sudo apt update && sudo apt install nodejs npm -y
-    else
-        echo -e "\033[0;31m[!] OS tidak didukung otomatis. Install Node.js manual.\033[0m"
-        exit 1
-    fi
+# 1. Cek & Paksa Update Node.js ke v20
+echo -e "${KUNING}[*] Mengecek versi Node.js...${NORMAL}"
+if command -v node &> /dev/null; then
+    NODE_VER=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
+    echo -e "[*] Terdeteksi Node.js versi: $(node -v)"
+else
+    NODE_VER=0
 fi
 
-# 2. Membuat Folder Project
+if [ "$NODE_VER" -lt 20 ]; then
+    echo -e "${KUNING}[*] Modul terbaru butuh Node.js v20+. Melakukan upgrade...${NORMAL}"
+    if command -v apt &> /dev/null; then
+        # Instalasi untuk Ubuntu/Debian
+        apt-get update
+        apt-get install -y curl
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install -y nodejs
+    elif command -v pkg &> /dev/null; then
+        # Instalasi untuk Termux
+        pkg update -y && pkg install nodejs -y
+    else
+        echo -e "${MERAH}[!] OS tidak didukung otomatis. Silakan update Node.js manual ke v20.${NORMAL}"
+        exit 1
+    fi
+else
+    echo -e "${HIJAU}[✓] Versi Node.js sudah memadai (v20+).${NORMAL}"
+fi
+
+# 2. Membuat Folder Project (Hapus folder lama jika ada agar bersih)
 echo -e "${KUNING}[*] Menyiapkan folder project...${NORMAL}"
+rm -rf wa-bot-anticall
 mkdir -p wa-bot-anticall
 cd wa-bot-anticall
 
@@ -34,21 +51,14 @@ cat << 'EOF' > package.json
 {
   "name": "wa-bot-anticall",
   "version": "1.0.0",
-  "description": "WhatsApp Bot Anti-Call by Gemini",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  }
+  "scripts": { "start": "node index.js" }
 }
 EOF
 
-# 4. Membuat file index.js (Script Utama)
+# 4. Membuat file index.js
 echo -e "${KUNING}[*] Menulis script utama (index.js)...${NORMAL}"
 cat << 'EOF' > index.js
-// Fix untuk Node.js v18 (Error Crypto)
-const crypto = require('crypto');
-if (!global.crypto) global.crypto = crypto.webcrypto;
-
 const { 
     default: makeWASocket, 
     useMultiFileAuthState, 
@@ -78,13 +88,12 @@ async function startBot() {
         browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
-    // Fitur Pairing Code
     if (!sock.authState.creds.registered) {
         console.clear();
         console.log("========================================");
         console.log("   WHATSAPP BOT ANTI-CALL PAIRING");
         console.log("========================================\n");
-        const phoneNumber = await question('Masukkan nomor WhatsApp (Contoh: 62812xxx): ');
+        const phoneNumber = await question('Masukkan nomor WA (Contoh: 62812xxx): ');
         const code = await sock.requestPairingCode(phoneNumber.replace(/[^0-9]/g, ''));
         console.log(`\n> KODE PAIRING ANDA: ${code} <\n`);
     }
@@ -101,7 +110,6 @@ async function startBot() {
         }
     });
 
-    // Logika Anti-Call
     sock.ev.on('call', async (node) => {
         for (let call of node) {
             if (call.status === 'offer') {
@@ -126,7 +134,7 @@ async function startBot() {
                             await sock.updateBlockStatus(callerId, 'unblock');
                             console.log(`[✅] Membuka blokir ${callerId.split('@')[0]}`);
                             delete callCounts[callerId];
-                        }, 15000); // 15 detik
+                        }, 15000);
                     }, 1000);
                 }
             }
@@ -137,8 +145,8 @@ async function startBot() {
 startBot();
 EOF
 
-# 5. Instalasi Modul (Terlihat Log-nya)
-echo -e "${KUNING}[*] Menginstal library terbaru (Baileys & Pino)...${NORMAL}"
+# 5. Instalasi Modul
+echo -e "${KUNING}[*] Menginstal library Baileys terbaru... (Agak lama, harap tunggu)${NORMAL}"
 npm install @whiskeysockets/baileys pino
 
 # 6. Selesai
@@ -147,4 +155,3 @@ echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
-
