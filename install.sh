@@ -14,7 +14,6 @@ echo -e "${BIRU}==============================================${NORMAL}"
 echo -e "${KUNING}[*] Mengecek versi Node.js...${NORMAL}"
 if command -v node &> /dev/null; then
     NODE_VER=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
-    echo -e "[*] Terdeteksi Node.js versi: $(node -v)"
 else
     NODE_VER=0
 fi
@@ -62,7 +61,6 @@ const readline = require('readline');
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-// Untuk mencegah bot mengirim pesan berkali-kali pada satu panggilan yang sama
 const processedCalls = new Set(); 
 
 async function startBot() {
@@ -73,7 +71,7 @@ async function startBot() {
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        markOnlineOnConnect: false, // Menjaga notifikasi HP tetap berbunyi
+        markOnlineOnConnect: false, // Menjaga notifikasi HP tetap hidup (tanpa update status)
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
@@ -100,36 +98,40 @@ async function startBot() {
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ Bot Berhasil Terhubung!');
-            sock.sendPresenceUpdate('unavailable'); // Menjaga agar status tetap offline
         }
     });
 
     sock.ev.on('call', async (node) => {
         for (let call of node) {
             if (call.status === 'offer') {
-                // Cegah spam pesan untuk panggilan yang sama
                 if (processedCalls.has(call.id)) continue;
                 processedCalls.add(call.id);
 
-                const callerId = call.from;
-                const cleanNumber = callerId.split('@')[0].split(':')[0];
-                const cleanJid = cleanNumber + '@s.whatsapp.net';
+                // Gunakan ID asli tanpa dipotong agar pesan pasti masuk
+                const callerId = call.from; 
 
                 try {
-                    // Tolak panggilan
+                    // 1. Tolak Panggilan
                     await sock.rejectCall(call.id, callerId);
-                    console.log(`[📞] Panggilan otomatis ditolak dari: ${cleanNumber}`);
+                    console.log(`[📞] Panggilan otomatis ditolak dari: ${callerId.split('@')[0]}`);
 
-                    // Kirim pesan peringatan tunggal
-                    await sock.sendMessage(cleanJid, { 
-                        text: "⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih." 
-                    });
+                    // 2. Beri jeda 1.5 detik sebelum membalas pesan (PENTING agar pesan tidak drop)
+                    setTimeout(async () => {
+                        try {
+                            await sock.sendMessage(callerId, { 
+                                text: "⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih." 
+                            });
+                            console.log(`[✉️] Pesan peringatan terkirim!`);
+                        } catch (msgErr) {
+                            console.log(`[!] Gagal mengirim pesan:`, msgErr.message);
+                        }
+                    }, 1500);
 
-                    // Hapus ID panggilan dari memori setelah 1 menit agar tidak menumpuk
+                    // Hapus data call setelah 1 menit
                     setTimeout(() => processedCalls.delete(call.id), 60000);
 
                 } catch (e) {
-                    console.log(`[!] Error memproses panggilan dari ${cleanNumber}:`, e.message);
+                    console.log(`[!] Error memproses panggilan:`, e.message);
                 }
             }
         }
@@ -147,3 +149,4 @@ echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
+
