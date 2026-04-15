@@ -8,7 +8,7 @@ NORMAL='\033[0m'
 
 clear
 echo -e "${BIRU}==============================================${NORMAL}"
-echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (ONE-CLICK)  ${NORMAL}"
+echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (SIMPLE)     ${NORMAL}"
 echo -e "${BIRU}==============================================${NORMAL}"
 
 echo -e "${KUNING}[*] Mengecek versi Node.js...${NORMAL}"
@@ -62,7 +62,7 @@ const readline = require('readline');
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
-const callCounts = {}; 
+// Untuk mencegah bot mengirim pesan berkali-kali pada satu panggilan yang sama
 const processedCalls = new Set(); 
 
 async function startBot() {
@@ -73,6 +73,7 @@ async function startBot() {
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
+        markOnlineOnConnect: false, // Menjaga notifikasi HP tetap berbunyi
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
@@ -99,12 +100,14 @@ async function startBot() {
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ Bot Berhasil Terhubung!');
+            sock.sendPresenceUpdate('unavailable'); // Menjaga agar status tetap offline
         }
     });
 
     sock.ev.on('call', async (node) => {
         for (let call of node) {
             if (call.status === 'offer') {
+                // Cegah spam pesan untuk panggilan yang sama
                 if (processedCalls.has(call.id)) continue;
                 processedCalls.add(call.id);
 
@@ -113,40 +116,18 @@ async function startBot() {
                 const cleanJid = cleanNumber + '@s.whatsapp.net';
 
                 try {
+                    // Tolak panggilan
                     await sock.rejectCall(call.id, callerId);
-                    
-                    callCounts[cleanJid] = (callCounts[cleanJid] || 0) + 1;
-                    const count = callCounts[cleanJid];
+                    console.log(`[📞] Panggilan otomatis ditolak dari: ${cleanNumber}`);
 
-                    if (count === 1) {
-                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 1*\nMohon maaf, saya tidak menerima panggilan. Silakan chat saja." });
-                    } else if (count === 2) {
-                        await sock.sendMessage(cleanJid, { text: "⚠️ *PERINGATAN 2*\nJangan menelpon lagi atau nomor Anda akan diblokir otomatis oleh sistem selama 30 detik." });
-                    } else if (count === 3) { // HANYA EKSEKUSI TEPAT DI PANGGILAN KE-3
-                        await sock.sendMessage(cleanJid, { text: "🚫 *DIBLOKIR SEMENTARA*\nNomor Anda diblokir selama 30 detik karena spam panggilan." });
-                        
-                        setTimeout(async () => {
-                            try {
-                                await sock.updateBlockStatus(cleanJid, 'block');
-                                console.log(`[🚫] Berhasil memblokir ${cleanNumber}`);
+                    // Kirim pesan peringatan tunggal
+                    await sock.sendMessage(cleanJid, { 
+                        text: "⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih." 
+                    });
 
-                                setTimeout(async () => {
-                                    try {
-                                        await sock.updateBlockStatus(cleanJid, 'unblock');
-                                        console.log(`[✅] Membuka blokir ${cleanNumber}`);
-                                        delete callCounts[cleanJid];
-                                    } catch (e) {
-                                        console.log(`[!] Gagal unblock ${cleanNumber}:`, e.message);
-                                    }
-                                }, 30000); // Timer diubah menjadi 30 Detik
-                            } catch (e) {
-                                console.log(`[!] Gagal block ${cleanNumber}:`, e.message);
-                            }
-                        }, 1000);
-                    } else if (count > 3) {
-                        // Jika memaksa nelpon terus (count ke 4, 5, dst), cukup reject diam-diam. Jangan spam chat & request block lagi.
-                        console.log(`[!] Menolak spammer ${cleanNumber} (Sedang proses blokir)`);
-                    }
+                    // Hapus ID panggilan dari memori setelah 1 menit agar tidak menumpuk
+                    setTimeout(() => processedCalls.delete(call.id), 60000);
+
                 } catch (e) {
                     console.log(`[!] Error memproses panggilan dari ${cleanNumber}:`, e.message);
                 }
@@ -166,4 +147,3 @@ echo -e "${HIJAU}      INSTALASI SELESAI! MENJALANKAN BOT...   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
 sleep 2
 node index.js
-
