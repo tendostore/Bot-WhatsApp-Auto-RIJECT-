@@ -7,7 +7,7 @@ NORMAL='\033[0m'
 
 clear
 echo -e "${BIRU}==============================================${NORMAL}"
-echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (PPOB FIX)   ${NORMAL}"
+echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (ALL CALL)   ${NORMAL}"
 echo -e "${BIRU}==============================================${NORMAL}"
 
 if command -v node &> /dev/null; then
@@ -52,6 +52,7 @@ const readline = require('readline');
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
+// Hanya menyimpan ID call agar bot tidak merespon 1 sinyal yang sama berulang kali
 const processedCalls = new Set(); 
 
 async function startBot() {
@@ -87,7 +88,6 @@ async function startBot() {
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('✅ Bot Berhasil Terhubung!');
-            // MEMAKSA STATUS OFFLINE AGAR NOTIFIKASI HP BERBUNYI
             await sock.sendPresenceUpdate('unavailable');
         }
     });
@@ -98,33 +98,26 @@ async function startBot() {
                 if (processedCalls.has(call.id)) continue;
                 processedCalls.add(call.id);
 
-                const callerId = call.from; 
-                const cleanNumber = callerId.split('@')[0].split(':')[0];
-                const cleanJid = cleanNumber + '@s.whatsapp.net';
+                const callerJid = call.from;
 
                 try {
-                    // Tolak Telepon
-                    await sock.rejectCall(call.id, callerId);
-                    console.log(`[📞] Ditolak: ${cleanNumber}`);
+                    // 1. Tolak Telepon Langsung
+                    await sock.rejectCall(call.id, callerJid);
+                    console.log(`[📞] Panggilan ditolak dari: ${callerJid.split('@')[0]}`);
+
+                    // 2. Buat Pesan Unik Berdasarkan Waktu Detail
+                    const timeNow = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' });
+                    const pesan = `⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih.\n\n_Ditolak pada: ${timeNow}_`;
                     
-                    // Jeda agar pesan tidak bertabrakan dengan penolakan
-                    setTimeout(async () => {
-                        try {
-                            // Membuat pesan unik setiap saat dengan menambahkan waktu
-                            const timeNow = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' });
-                            const pesanUnik = `⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih.\n\n_Sistem Bot - ${timeNow}_`;
+                    // 3. Kirim Pesan Setiap Kali Ditelepon
+                    await sock.sendMessage(callerJid, { text: pesan });
+                    console.log(`[✉️] BERHASIL mengirim pesan ke ${callerJid.split('@')[0]}`);
 
-                            await sock.sendMessage(cleanJid, { text: pesanUnik });
-                            console.log(`[✉️] Pesan terkirim ke ${cleanNumber}`);
-                        } catch (msgErr) {
-                            console.log(`[!] Gagal kirim pesan:`, msgErr.message);
-                        }
-                    }, 1500);
-
-                    // Hapus memory panggilan lebih cepat (10 detik)
+                    // Bersihkan memori ID setelah 10 detik agar hemat RAM
                     setTimeout(() => processedCalls.delete(call.id), 10000);
+
                 } catch (e) {
-                    console.log(`[!] Error sistem:`, e.message);
+                    console.log(`[!] GAGAL memproses panggilan/pesan:`, e.message);
                 }
             }
         }
