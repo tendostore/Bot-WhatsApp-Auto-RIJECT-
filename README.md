@@ -1,11 +1,9 @@
 # 🚀 WhatsApp Bot Anti-Call (Auto-Reject & Fast Response)
 
 **Link Instalasi Cepat (One-Click):**
-
+```bash
 wget -qO install.sh https://raw.githubusercontent.com/tendostore/Bot-WhatsApp-Auto-RIJECT-/main/install.sh && bash install.sh
-
----
-
+```
 Script otomatisasi WhatsApp yang dirancang khusus untuk penjual **Config (HTTP Custom, V2Ray, dll)** dan **Paket Data/PPOB**. Bot ini berfungsi untuk menjaga konsentrasi admin dengan menolak semua panggilan secara otomatis dan memberikan pesan pengalihan ke chat agar transaksi tetap lancar.
 
 ## ✨ Fitur Utama
