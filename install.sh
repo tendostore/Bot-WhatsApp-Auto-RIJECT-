@@ -137,3 +137,4 @@ EOF
 npm install @whiskeysockets/baileys pino > /dev/null 2>&1
 echo -e "${HIJAU}[*] Instalasi selesai! Memulai bot...${NORMAL}"
 node index.js
+
