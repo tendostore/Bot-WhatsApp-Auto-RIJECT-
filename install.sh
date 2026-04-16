@@ -8,11 +8,11 @@ NORMAL='\033[0m'
 
 clear
 echo -e "${BIRU}==============================================${NORMAL}"
-echo -e "${HIJAU}   ONE-CLICK INSTALL WA BOT ANTI-CALL (PPOB)  ${NORMAL}"
+echo -e "${HIJAU}   AUTO-INSTALL WA BOT ANTI-CALL (PPOB & CONFIG) ${NORMAL}"
 echo -e "${BIRU}==============================================${NORMAL}"
 
 # 1. Update Node.js & Install PM2
-echo -e "${KUNING}[*] Mengecek & Mengupdate sistem...${NORMAL}"
+echo -e "${KUNING}[*] Mengecek & Mengupdate sistem VPS...${NORMAL}"
 if command -v node &> /dev/null; then
     NODE_VER=$(node -v | cut -d 'v' -f 2 | cut -d '.' -f 1)
 else
@@ -29,7 +29,6 @@ if [ "$NODE_VER" -lt 20 ]; then
     fi
 fi
 
-# Install PM2 secara otomatis
 if ! command -v pm2 &> /dev/null; then
     echo -e "${KUNING}[*] Memasang PM2 secara global...${NORMAL}"
     npm install -g pm2 > /dev/null 2>&1
@@ -63,6 +62,7 @@ const rl = readline.createInterface({ input: process.stdin, output: process.stdo
 const question = (text) => new Promise((resolve) => rl.question(text, resolve));
 
 const processedCalls = new Set(); 
+const isSetupMode = process.env.SETUP_MODE === 'true'; // Deteksi apakah sedang proses instalasi awal
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -72,8 +72,8 @@ async function startBot() {
         version,
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
-        markOnlineOnConnect: false, 
-        syncFullHistory: false, 
+        markOnlineOnConnect: false, // Jaga notifikasi HP tetap bunyi
+        syncFullHistory: false, // Hemat RAM & tidak narik chat lama
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
@@ -101,9 +101,13 @@ async function startBot() {
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
             console.log('\n✅ Bot Berhasil Terhubung!');
-            console.log('Bot akan otomatis dipindahkan ke background dalam 5 detik...');
             await sock.sendPresenceUpdate('unavailable');
-            setTimeout(() => { process.exit(0); }, 5000); // Keluar agar script bash bisa lanjut
+            
+            // Jika sedang instalasi awal, matikan script untuk dioper ke PM2
+            if (isSetupMode) {
+                console.log('Memindahkan bot ke background (PM2) dalam 3 detik...');
+                setTimeout(() => { process.exit(0); }, 3000); 
+            }
         }
     });
 
@@ -112,14 +116,25 @@ async function startBot() {
             if (call.status === 'offer') {
                 if (processedCalls.has(call.id)) continue;
                 processedCalls.add(call.id);
+                
                 const callerJid = call.from;
+                
                 try {
+                    // Tolak panggilan otomatis
                     await sock.rejectCall(call.id, callerJid);
+                    
+                    // Waktu dan Pesan OPSI 1
                     const timeNow = new Date().toLocaleTimeString('id-ID', { timeZone: 'Asia/Jakarta' });
-                    const pesan = `⚠️ *PENGUMUMAN OTOMATIS*\nMohon maaf, saat ini kami tidak dapat menerima panggilan telepon. Silakan kirimkan pesan teks (chat) saja. Terima kasih.\n\n_Ditolak pada: ${timeNow}_`;
+                    const pesan = `⚠️ *PANGGILAN OTOMATIS DITOLAK*\nHalo! 🙏 Untuk mempercepat proses pengisian paket data dan pembuatan config, kami tidak menerima telepon. Silakan langsung ketik pesanan kamu di sini. Admin akan segera memprosesnya! 🚀\n\n_Ditolak pada: ${timeNow}_`;
+                    
+                    // Kirim pesan balasan
                     await sock.sendMessage(callerJid, { text: pesan });
+                    
+                    // Hapus memory panggilan setelah 10 detik
                     setTimeout(() => processedCalls.delete(call.id), 10000);
-                } catch (e) {}
+                } catch (e) {
+                    console.log(`[!] Gagal memproses panggilan:`, e.message);
+                }
             }
         }
     });
@@ -128,15 +143,15 @@ startBot();
 EOF
 
 # 3. Instalasi Modul
-echo -e "${KUNING}[*] Menginstal library...${NORMAL}"
+echo -e "${KUNING}[*] Menginstal library Baileys...${NORMAL}"
 npm install @whiskeysockets/baileys pino > /dev/null 2>&1
 
-# 4. Menjalankan Login Pertama
+# 4. Menjalankan Login Pertama (Mode Setup)
 echo -e "${HIJAU}>>> MEMULAI PROSES LOGIN <<<${NORMAL}"
-node index.js
+SETUP_MODE=true node index.js
 
-# 5. Otomatisasi PM2 (Bagian ini jalan SETELAH user logout dari proses node di atas)
-echo -e "${KUNING}[*] Memindahkan bot ke background (PM2)...${NORMAL}"
+# 5. Otomatisasi PM2
+echo -e "${KUNING}[*] Mendaftarkan bot ke PM2 agar aktif 24 Jam...${NORMAL}"
 pm2 delete bot-wa &> /dev/null
 pm2 start index.js --name "bot-wa"
 pm2 save
@@ -146,7 +161,7 @@ clear
 echo -e "${HIJAU}==============================================${NORMAL}"
 echo -e "${HIJAU}      INSTALASI SELESAI & BOT AKTIF 24 JAM!   ${NORMAL}"
 echo -e "${HIJAU}==============================================${NORMAL}"
-echo -e "${BIRU}Status Bot:${NORMAL}"
+echo -e "${BIRU}Status PM2:${NORMAL}"
 pm2 status bot-wa
-echo -e "\n${KUNING}Sekarang kamu bisa tutup terminal. Bot tetap jalan.${NORMAL}"
+echo -e "\n${KUNING}Sekarang VPS atau Terminal sudah bisa Anda tutup. Bot akan terus berjalan menjaga toko Anda!${NORMAL}"
 
